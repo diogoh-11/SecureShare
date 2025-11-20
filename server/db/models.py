@@ -26,245 +26,184 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     username = Column(String(80), unique=True, nullable=False, index=True)
-    password_hash = Column(String(255), nullable=False)          # Argon2 / PBKDF2
-    one_time_password = Column(String(64), nullable=True)        # NULL após ativação
+    password_hash = Column(String(255), nullable=False)
+    activation_code = Column(String(64), nullable=True)
     is_active = Column(Boolean, nullable=False, default=False)
-    role = Column(
-        String(20),
-        nullable=False,
-        default="USER",
-        # USER, SECURITY_OFFICER, TRUSTED_OFFICER, AUDITOR, ADMINISTRATOR
-    )
+    public_key = Column(Text, nullable=True)
+    encrypted_vault = Column(Text, nullable=True)
+    is_admin = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, server_default=func.now())
-    activated_at = Column(DateTime, nullable=True)
-
-    # ----------- Relações 1:1 / 1:N ----------
-    public_key = relationship(
-        "UserPublicKey", uselist=False, back_populates="user", cascade="all, delete-orphan"
-    )
-    vault = relationship(
-        "UserVault", uselist=False, back_populates="user", cascade="all, delete-orphan"
-    )
-    clearances = relationship(
-        "ClearanceToken", back_populates="user", cascade="all, delete-orphan"
-    )
-    revocations = relationship(
-        "ClearanceRevocation", back_populates="token", cascade="all, delete-orphan"
-    )
-    transfers = relationship("Transfer", back_populates="uploader")
-    audit_entries = relationship("AuditLog", back_populates="actor")
-    verifications = relationship("AuditVerification", back_populates="auditor")
-
-    # ----------- Métodos úteis ----------
-    def is_admin(self) -> bool:
-        return self.role == "ADMINISTRATOR"
-
-    def is_security_officer(self) -> bool:
-        return self.role == "SECURITY_OFFICER"
-
-    def __repr__(self) -> str:
-        return f"<User {self.username} [{self.role}]>"
-
-
-# ----------------------------------------------------------------------
-# 2. CHAVE PÚBLICA DO USUÁRIO
-# ----------------------------------------------------------------------
-class UserPublicKey(Base):
-    __tablename__ = "user_public_keys"
-
-    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
-    public_key = Column(Text, nullable=False)          # PEM ou base64
-    uploaded_at = Column(DateTime, server_default=func.now())
-
-    user = relationship("User", back_populates="public_key")
-
-
-# ----------------------------------------------------------------------
-# 3. VAULT (chave privada criptografada com senha)
-# ----------------------------------------------------------------------
-class UserVault(Base):
-    __tablename__ = "user_vaults"
-
-    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
-    encrypted_blob = Column(Text, nullable=False)      # ciphertext
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    user = relationship("User", back_populates="vault")
+    # Relações
+    role_tokens = relationship("RoleToken", foreign_keys="RoleToken.user_id", back_populates="user")
+    clearance_tokens = relationship("ClearanceToken", foreign_keys="ClearanceToken.user_id", back_populates="user")
+    transfers = relationship("Transfer", back_populates="uploader")
+    audit_entries = relationship("AuditLogEntry", back_populates="actor")
+    verifications = relationship("AuditVerification", back_populates="auditor")
+
+    def __repr__(self) -> str:
+        return f"<User {self.username}>"
 
 
 # ----------------------------------------------------------------------
-# 4. DEPARTAMENTOS (categorias do MLS)
+# 2. ROLE TOKENS
 # ----------------------------------------------------------------------
-class Department(Base):
-    __tablename__ = "departments"
+class RoleToken(Base):
+    __tablename__ = "role_tokens"
 
     id = Column(Integer, primary_key=True)
-    name = Column(String(80), unique=True, nullable=False, index=True)
-    created_at = Column(DateTime, server_default=func.now())
+    role = Column(String(20), nullable=False)
+    issued_at = Column(DateTime, server_default=func.now())
+    expires_at = Column(DateTime, nullable=False, index=True)
+    signature = Column(Text, nullable=False)
+    revoked = Column(Boolean, nullable=False, default=False)
+    revoked_at = Column(DateTime, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    issuer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    # Usado em ClearanceToken e Transfer via JSON
-    __table_args__ = (Index("ix_departments_name", "name"),)
+    user = relationship("User", foreign_keys=[user_id], back_populates="role_tokens")
+    issuer = relationship("User", foreign_keys=[issuer_id])
+    revocations = relationship("RoleRevocation", back_populates="role_token", cascade="all, delete-orphan")
 
 
 # ----------------------------------------------------------------------
-# 5. CLEARANCE TOKENS (emitidos pelo Security Officer)
+# 3. ROLE REVOCATION
+# ----------------------------------------------------------------------
+class RoleRevocation(Base):
+    __tablename__ = "role_revocations"
+
+    id = Column(Integer, primary_key=True)
+    revoked_at = Column(DateTime, server_default=func.now())
+    signature = Column(Text, nullable=False)
+    role_token_id = Column(Integer, ForeignKey("role_tokens.id"), nullable=False)
+    revoker_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    role_token = relationship("RoleToken", back_populates="revocations")
+    revoker = relationship("User")
+
+
+# ----------------------------------------------------------------------
+# 4. CLEARANCE TOKENS
 # ----------------------------------------------------------------------
 class ClearanceToken(Base):
     __tablename__ = "clearance_tokens"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    level = Column(
-        String(20), nullable=False
-    )  # UNCLASSIFIED, CONFIDENTIAL, SECRET, TOP_SECRET
-    departments_json = Column(JSON, nullable=False)   # ["Finance","HR"]
-    issued_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    level = Column(String(20), nullable=False)
+    departments = Column(JSON, nullable=False)
     issued_at = Column(DateTime, server_default=func.now())
     expires_at = Column(DateTime, nullable=False, index=True)
-    signature = Column(Text, nullable=False)          # assinatura do SO
+    signature = Column(Text, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    issuer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    user = relationship("User", foreign_keys=[user_id], back_populates="clearances")
-    issuer = relationship("User", foreign_keys=[issued_by])
+    user = relationship("User", foreign_keys=[user_id], back_populates="clearance_tokens")
+    issuer = relationship("User", foreign_keys=[issuer_id])
 
-    # Revogação aponta para este token
-    revocations = relationship(
-        "ClearanceRevocation", back_populates="token", cascade="all, delete-orphan"
-    )
-
-    @validates("departments_json")
+    @validates("departments")
     def validate_departments(self, key, value):
         if not isinstance(value, list):
-            raise ValueError("departments_json must be a list")
+            raise ValueError("departments must be a list")
         return value
 
 
 # ----------------------------------------------------------------------
-# 6. REVOGAÇÃO DE CLEARANCE
-# ----------------------------------------------------------------------
-class ClearanceRevocation(Base):
-    __tablename__ = "clearance_revocations"
-
-    id = Column(Integer, primary_key=True)
-    token_id = Column(Integer, ForeignKey("clearance_tokens.id"), nullable=False)
-    revoked_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    revoked_at = Column(DateTime, server_default=func.now())
-    signature = Column(Text, nullable=False)
-
-    token = relationship("ClearanceToken", back_populates="revocations")
-    revoker = relationship("User")
-
-
-# ----------------------------------------------------------------------
-# 7. TRANSFERÊNCIAS (arquivos criptografados)
+# 5. TRANSFERS
 # ----------------------------------------------------------------------
 class Transfer(Base):
     __tablename__ = "transfers"
 
     id = Column(Integer, primary_key=True)
-    uploader_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
     classification_level = Column(String(20), nullable=False)
-    departments_json = Column(JSON, nullable=False)   # [] = organização geral
+    departments = Column(JSON, nullable=False)
     is_public = Column(Boolean, nullable=False, default=False)
     expires_at = Column(DateTime, nullable=False, index=True)
-    created_at = Column(DateTime, server_default=func.now())
-    deleted_at = Column(DateTime, nullable=True)     # soft-delete
-    metadata_json = Column(JSON, nullable=True)      # nome, tamanho, mime, ...
+    encrypted_blob_path = Column(String(512), nullable=True)
+    uploader_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
 
     uploader = relationship("User", back_populates="transfers")
-    encrypted_keys = relationship(
-        "EncryptedFileKey", back_populates="transfer", cascade="all, delete-orphan"
-    )
+    encrypted_keys = relationship("EncryptedFileKey", back_populates="transfer", cascade="all, delete-orphan")
 
-    @validates("departments_json")
-    def validate_depts(self, key, value):
+    @validates("departments")
+    def validate_departments(self, key, value):
         if not isinstance(value, list):
-            raise ValueError("departments_json must be a list")
+            raise ValueError("departments must be a list")
         return value
 
 
 # ----------------------------------------------------------------------
-# 8. CHAVES DE ARQUIVO CRIPTOGRAFADAS (por destinatário)
+# 6. ENCRYPTED FILE KEYS
 # ----------------------------------------------------------------------
 class EncryptedFileKey(Base):
     __tablename__ = "encrypted_file_keys"
 
-    id = Column(Integer, primary_key=True)
-    transfer_id = Column(Integer, ForeignKey("transfers.id"), nullable=False)
-    recipient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    encrypted_key = Column(Text, nullable=False)     # FileKey cifrada com pubkey do recipient
+    transfer_id = Column(Integer, ForeignKey("transfers.id"), primary_key=True)
+    recipient_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    encrypted_symmetric_key = Column(Text, nullable=False)
 
     transfer = relationship("Transfer", back_populates="encrypted_keys")
     recipient = relationship("User")
 
-    __table_args__ = (
-        Index("ix_unique_key_per_user", "transfer_id", "recipient_id", unique=True),
-    )
-
 
 # ----------------------------------------------------------------------
-# 9. LOG DE AUDITORIA – HASH CHAIN
+# 7. AUDIT LOG ENTRY
 # ----------------------------------------------------------------------
-class AuditLog(Base):
-    __tablename__ = "audit_log"
+class AuditLogEntry(Base):
+    __tablename__ = "audit_log_entries"
 
     id = Column(Integer, primary_key=True)
-    event_type = Column(String(64), nullable=False)          # USER_CREATED, FILE_UPLOADED, …
-    actor_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
-    target_id = Column(Integer, nullable=True)              # id do objeto afetado
-    details_json = Column(JSON, nullable=True)              # dados estruturados
+    previous_hash = Column(String(64), nullable=False, default="GENESIS")
+    entry_hash = Column(String(64), nullable=False)
     timestamp = Column(DateTime, server_default=func.now())
-    prev_hash = Column(String(64), nullable=False, default="GENESIS")
-    current_hash = Column(String(64), nullable=False)
+    action = Column(String(64), nullable=False)
+    details = Column(JSON, nullable=True)
+    actor_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     actor = relationship("User", back_populates="audit_entries")
-    verifications = relationship(
-        "AuditVerification", back_populates="log_entry", cascade="all, delete-orphan"
-    )
+    verifications = relationship("AuditVerification", back_populates="log_entry", cascade="all, delete-orphan")
 
-    # ---------- Hook automático para hash-chain ----------
     @staticmethod
     def _calc_hash(prev: str, payload: dict, ts: datetime) -> str:
         data = json.dumps(payload, sort_keys=True, default=str).encode()
         return hashlib.sha256(f"{prev}{data}{ts.isoformat()}".encode()).hexdigest()
 
     def __repr__(self) -> str:
-        return f"<AuditLog {self.event_type} #{self.id}>"
+        return f"<AuditLogEntry {self.action} #{self.id}>"
 
 
 # Hook que roda **antes** de INSERT
-@event.listens_for(AuditLog, "before_insert")
+@event.listens_for(AuditLogEntry, "before_insert")
 def _audit_before_insert(mapper, connection, target):
-    # 1. Último hash
     last = connection.execute(
-        text("SELECT current_hash FROM audit_log ORDER BY id DESC LIMIT 1")
+        text("SELECT entry_hash FROM audit_log_entries ORDER BY id DESC LIMIT 1")
     ).fetchone()
     prev = last[0] if last else "GENESIS"
 
-    # 2. Payload serializável
     payload = {
         "id": target.id,
-        "event_type": target.event_type,
+        "action": target.action,
         "actor_id": target.actor_id,
-        "target_id": target.target_id,
-        "details": target.details_json or {},
+        "details": target.details or {},
     }
 
-    target.prev_hash = prev
-    target.current_hash = AuditLog._calc_hash(prev, payload, target.timestamp)
+    target.previous_hash = prev
+    target.entry_hash = AuditLogEntry._calc_hash(prev, payload, target.timestamp)
 
 
 # ----------------------------------------------------------------------
-# 10. VERIFICAÇÃO DO AUDITOR (Verification Object)
+# 8. AUDIT VERIFICATION
 # ----------------------------------------------------------------------
 class AuditVerification(Base):
     __tablename__ = "audit_verifications"
 
     id = Column(Integer, primary_key=True)
-    log_id = Column(Integer, ForeignKey("audit_log.id"), nullable=False)
-    auditor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    statement = Column(Text, nullable=False)               # "Log válido até aqui"
     timestamp = Column(DateTime, server_default=func.now())
-    signature = Column(Text, nullable=False)               # assinatura do auditor
+    verified_up_to_hash = Column(String(64), nullable=False)
+    signature = Column(Text, nullable=False)
+    audit_log_entry_id = Column(Integer, ForeignKey("audit_log_entries.id"), nullable=False)
+    auditor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    log_entry = relationship("AuditLog", back_populates="verifications")
+    log_entry = relationship("AuditLogEntry", back_populates="verifications")
     auditor = relationship("User", back_populates="verifications")
