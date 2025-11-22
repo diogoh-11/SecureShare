@@ -158,3 +158,5 @@ temp/
 
 # Migration files (opcional - descomentar para não versionar)
 # backend/migrations/versions/*.py
+
+.claude
