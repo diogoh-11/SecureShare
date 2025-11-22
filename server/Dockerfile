@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # copy files
 COPY main.py .
 COPY database.py .
+COPY enums.py .
 COPY routers/ ./routers/
 COPY schemas/ ./schemas/
 COPY models/ ./models/

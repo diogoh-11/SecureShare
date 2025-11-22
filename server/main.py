@@ -1,13 +1,14 @@
 from fastapi import FastAPI
 import uvicorn
 
-from database import engine, Base
+from database import engine, Base, SessionLocal
 from models.models import (
     Organization, User, Department, ClearanceLevel,
     Transfer, TransferKey, Role, RoleToken, RoleRevocation, ClearanceToken
 )
 
 from routers import authentication, user_management, department_management, file_transfer, organization_management
+from services.seed_service import SeedService
 
 app = FastAPI(
     title="SShare",
@@ -18,9 +19,15 @@ app = FastAPI(
 # init db
 @app.on_event("startup")
 async def startup_event():
-    """Create database tables on startup"""
+    """Create database tables and seed initial data on startup"""
     Base.metadata.create_all(bind=engine)
     print("Database initialized successfully!")
+
+    db = SessionLocal()
+    try:
+        SeedService.seed_all(db)
+    finally:
+        db.close()
 
 # include routers
 app.include_router(organization_management.router)

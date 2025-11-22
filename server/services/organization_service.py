@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
-from models.models import Organization, User
+from models.models import Organization, User, Role, ClearanceLevel, RoleToken, ClearanceToken
 from schemas.schemas import CreateOrganizationRequest
+from enums import RoleEnum, ClearanceLevelEnum
 import hashlib
 
 
@@ -45,6 +46,25 @@ class OrganizationService:
         )
 
         db.add(organization)
+        db.flush()  # Flush to get organization ID
+
+        # Get Administrator role
+        admin_role = db.query(Role).filter(Role.label == RoleEnum.ADMINISTRATOR.value).first()
+
+        if not admin_role:
+            raise ValueError("Required roles not seeded in database")
+
+        # Create RoleToken for admin (self-issued, no expiration)
+        role_token = RoleToken(
+            role_id=admin_role.id,
+            signature=b"bootstrap",         # Bootstrap signature for initial admin
+            expires_at=None,                # No expiration
+            target_id=admin_user.id,
+            issuer_id=admin_user.id,        # Self-issued
+            organization_id=organization.id
+        )
+        db.add(role_token)
+
         db.commit()
         db.refresh(organization)
 
