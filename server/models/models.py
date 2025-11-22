@@ -24,6 +24,7 @@ class Organization(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     admin_id = Column(Integer, ForeignKey('users.id'))
+    name = Column(String, unique=True, nullable = False)
 
 
 class User(Base):

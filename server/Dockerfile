@@ -15,6 +15,6 @@ COPY models/ ./models/
 COPY services/ ./services/
 
 RUN mkdir -p transfers
-EXPOSE 8000
+EXPOSE 8443
 
 CMD ["python3", "main.py"]

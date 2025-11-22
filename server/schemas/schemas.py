@@ -78,3 +78,17 @@ class TransferResponse(BaseModel):
     created_at: str
     expires_at: str
     original_filenames: List[str]
+
+
+# Organization Schemas
+class CreateOrganizationRequest(BaseModel):
+    org_name: str
+    admin_username: str
+    admin_password: str
+    admin_public_key: str
+    admin_private_key_blob: str
+
+
+class OrganizationResponse(BaseModel):
+    id: int
+    admin_id: int

@@ -129,6 +129,7 @@ backend/uploads/*
 # Cryptographic keys
 backend/keys/
 backend/certs/
+server/certs/
 *.pem
 *.key
 *.crt

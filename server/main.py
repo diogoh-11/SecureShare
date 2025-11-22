@@ -7,11 +7,11 @@ from models.models import (
     Transfer, TransferKey, Role, RoleToken, RoleRevocation, ClearanceToken
 )
 
-from routers import authentication, user_management, department_management, file_transfer
+from routers import authentication, user_management, department_management, file_transfer, organization_management
 
 app = FastAPI(
-    title="SShare API",
-    description="Secure file sharing system with MLS access control",
+    title="SShare",
+    description="SIO 25/26 university project",
     version="1.0.0"
 )
 
@@ -23,6 +23,7 @@ async def startup_event():
     print("Database initialized successfully!")
 
 # include routers
+app.include_router(organization_management.router)
 app.include_router(authentication.router)
 app.include_router(user_management.router)
 app.include_router(department_management.router)
@@ -40,6 +41,8 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=8443,
+        ssl_keyfile="/app/certs/key.pem",
+        ssl_certfile="/app/certs/cert.pem",
         reload=True
     )
