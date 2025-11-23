@@ -129,6 +129,7 @@ backend/uploads/*
 # Cryptographic keys
 backend/keys/
 backend/certs/
+server/certs/
 *.pem
 *.key
 *.crt
@@ -158,3 +159,5 @@ temp/
 
 # Migration files (opcional - descomentar para não versionar)
 # backend/migrations/versions/*.py
+
+.claude
