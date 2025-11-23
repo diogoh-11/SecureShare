@@ -31,6 +31,40 @@ docker run -p 8443:8443 --name sshare-server-container \
 
 ```
 
+### Simple test for DB
+```bash 
+
+# Health check
+curl -k https://localhost:8443/health
+
+# Create ORG
+curl -k -X POST https://localhost:8443/organizations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "org_name": "ACME Corp",
+    "admin_username": "admin",
+    "admin_password": "strongPassword123",
+    "admin_public_key": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----",
+    "admin_private_key_blob": "encryptedPrivateKeyBlob..."
+  }'
+```
+
+
+## Check in DB
+
+```bash 
+# Enter container
+docker exec -it sshare-server-container bash
+
+# Inspect SQLite
+sqlite3 sshare.db
+.tables
+SELECT * FROM roles;
+SELECT * FROM clearance_levels;
+SELECT * FROM users;
+SELECT * FROM organizations;
+```
+
 
 ## Docs 
 
