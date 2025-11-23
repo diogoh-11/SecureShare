@@ -1,4 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
+from database import get_db
 from schemas.schemas import (
     CreateUserRequest,
     UpdateRoleRequest,
@@ -6,43 +8,51 @@ from schemas.schemas import (
     UpdateUserInfoRequest,
     VaultRequest
 )
+from services.user_management_service import UserManagementService
 
 router = APIRouter(prefix="/users", tags=["User Management"])
 
 
 @router.post("")
-async def create_user(request: CreateUserRequest):
+async def create_user(request: CreateUserRequest, db: Session = Depends(get_db)):
     """
-    Creates a new user to the system. Sets username and one-time password.
+    Creates a new user to the system. Sets username and activation code.
     Authorization: Administrator
     """
-    # TODO: Verify Administrator role
-    # TODO: Generate one-time password
-    # TODO: Create user in DB
-    # TODO: Return one-time password
-    pass
+    # TODO: Verify role
+    try:
+        result = UserManagementService.create_user(db, request.username)
+        return {
+            "user_id": result["user"].id,
+            "username": result["user"].username,
+            "activation_code": result["activation_code"]
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("")
-async def get_users():
+async def get_users(db: Session = Depends(get_db)):
     """
     Retrieves all users in the system.
     Authorization: Administrator, Security Officer
     """
-    # TODO: Verify role (Administrator or Security Officer)
-    # TODO: Fetch all users from DB
-    pass
+    # TODO: Verify role
+    users = UserManagementService.get_all_users(db)
+    return [{"id": u.id, "username": u.username, "is_active": u.is_active} for u in users]
 
 
 @router.delete("/{user_id}")
-async def delete_user(user_id: int):
+async def delete_user(user_id: int, db: Session = Depends(get_db)):
     """
     Removes a user from the system.
     Authorization: Administrator
     """
-    # TODO: Verify Administrator role
-    # TODO: Delete user and associated data
-    pass
+    # TODO: Verify role
+    success = UserManagementService.delete_user(db, user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"status": "deleted"}
 
 
 @router.put("/{user_id}/role")
@@ -92,14 +102,17 @@ async def revoke_token(user_id: int, token_id: int):
 
 
 @router.get("/{user_id}/key")
-async def get_user_public_key(user_id: int):
+async def get_user_public_key(user_id: int, db: Session = Depends(get_db)):
     """
     Retrieves a user's public key for encryption.
     Authorization: Authenticated User
     """
     # TODO: Verify authentication
-    # TODO: Fetch public key from DB
-    pass
+    try:
+        public_key = UserManagementService.get_user_public_key(db, user_id)
+        return {"user_id": user_id, "public_key": public_key.decode()}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.put("/me/vault")

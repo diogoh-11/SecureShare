@@ -21,6 +21,10 @@ COPY routers/ ./routers/
 COPY schemas/ ./schemas/
 COPY models/ ./models/
 COPY services/ ./services/
+COPY utils/ ./utils/
+COPY static/ ./static/
+COPY middlewares/ ./middlewares/
+
 
 RUN mkdir -p transfers
 EXPOSE 8443

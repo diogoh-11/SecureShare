@@ -1,8 +1,7 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, LargeBinary, Table
-from datetime import datetime
+import time
 from database import Base
 
-# Many-to-many: User <-> Department
 user_department = Table(
     'user_department',
     Base.metadata,
@@ -10,7 +9,6 @@ user_department = Table(
     Column('department_id', Integer, ForeignKey('departments.id'), primary_key=True)
 )
 
-# Many-to-many: ClearanceToken <-> Department
 clearance_department = Table(
     'clearance_department',
     Base.metadata,
@@ -32,9 +30,9 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, nullable=False)
-    public_key = Column(LargeBinary, unique=True, nullable=False)
-    private_key_blob = Column(LargeBinary, nullable=False)
-    is_active = Column(Boolean, default=True)
+    public_key = Column(LargeBinary, unique=True, nullable=True)
+    private_key_blob = Column(LargeBinary, nullable=True)
+    is_active = Column(Boolean, default=False)
 
 class RecoveryTokens(Base):
     __tablename__ = 'recovery_tokens'
@@ -42,6 +40,43 @@ class RecoveryTokens(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
     hashed_value = Column(String, unique=True, nullable=False)
+    is_used = Column(Boolean, default=False, nullable=False)
+
+
+class WebAuthnCredential(Base):
+    """cridentials for fido2"""
+    #TODO: may need more indo idk
+    __tablename__ = 'webauthn_credentials'
+
+    id =            Column(Integer, primary_key=True, index=True)
+    user_id =       Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    credential_id = Column(LargeBinary, unique=True, nullable=False, index=True)
+    public_key =    Column(LargeBinary, nullable=False)
+    sign_count =    Column(Integer, default=0, nullable=False)
+    created_at =    Column(Integer, default=lambda: int(time.time()), nullable=False)
+
+
+class WebAuthnChallenge(Base):
+    """challenges for validation"""
+    __tablename__ = 'webauthn_challenges'
+
+    id =                Column(Integer, primary_key=True, index=True)
+    username =          Column(String, nullable=False, index=True)
+    challenge =         Column(LargeBinary, nullable=False)
+    expires_at =        Column(Integer, nullable=False)
+    challenge_type =    Column(String, nullable=False) # TOCHECK: better approach for this line
+    is_used =           Column(Boolean, default=False, nullable=False)
+
+
+class Session(Base):
+    """Session management"""
+    __tablename__ = 'sessions'
+
+    id =            Column(Integer, primary_key=True, index=True)
+    user_id =       Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    session_token = Column(String, unique=True, nullable=False, index=True)
+    created_at =    Column(Integer, default=lambda: int(time.time()), nullable=False)
+    expires_at =    Column(Integer, nullable=False)
 
 
 class AuditLog(Base):

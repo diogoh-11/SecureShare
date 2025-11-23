@@ -27,11 +27,10 @@ class OrganizationService:
         if existing_user:
             raise ValueError("Username already exists")
 
-        password_hash = hashlib.sha256(request.admin_password.encode()).hexdigest()
-
+        # For organization creation, admin provides FIDO2 and encryption keys
         admin_user = User(
             username=request.admin_username,
-            password_hash=password_hash,
+            fido2_public_key=request.admin_fido2_public_key.encode(),
             public_key=request.admin_public_key.encode(),
             private_key_blob=request.admin_private_key_blob.encode(),
             is_active=True

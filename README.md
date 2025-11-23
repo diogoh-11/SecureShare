@@ -6,16 +6,16 @@
 ### Generate TLS Certificates
 Before running the server, generate self-signed certificates for TLS:
 
-```bash
-# Create a directory for certificates
-mkdir -p server/certs
+#### Install mkcert ( recommended )
 
-# Generate private key and self-signed certificate (valid for 365 days)
-openssl req -x509 -newkey rsa:4096 -nodes \
-  -keyout server/certs/key.pem \
-  -out server/certs/cert.pem \
-  -days 365 \
-  -subj "/C=PT/ST=State/L=City/O=Organization/CN=localhost"
+#### Create a cert 
+```bash 
+mkcert -install # make browsers auto trust
+mkdir -p server/certs
+cd server/certs
+mkcert localhost 127.0.0.1 ::1
+mv localhost+2.pem cert.pem
+mv localhost+2-key.pem key.pem
 ```
 
 ### Run server
