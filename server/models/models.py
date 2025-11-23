@@ -32,10 +32,40 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, nullable=False)
-    password_hash = Column(String, nullable=False)
     public_key = Column(LargeBinary, unique=True, nullable=False)
     private_key_blob = Column(LargeBinary, nullable=False)
     is_active = Column(Boolean, default=True)
+
+class RecoveryTokens(Base):
+    __tablename__ = 'recovery_tokens'
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    hashed_value = Column(String, unique=True, nullable=False)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True)
+    previousHash = Column(String, nullable=False)
+    entryHash = Column(String, nullable=False)
+    timestamp = Column(DateTime, nullable=False)
+    action = Column(String, nullable=False)
+
+    actor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+
+class AuditVerification(Base):
+    __tablename__ = "audit_verification"
+
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, nullable=False)
+    verifiedUpToHash = Column(String, nullable=False)
+    signature = Column(String, nullable=False)
+
+    audit_log_entry_id = Column(Integer, ForeignKey("audit_log.id"), nullable=False)
+    auditor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
 
 class Department(Base):
