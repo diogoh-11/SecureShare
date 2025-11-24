@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Header
 from sqlalchemy.orm import Session
 from database import get_db
+from utils.rbac import require_role
 from schemas.schemas import (
     CreateUserRequest,
     UpdateRoleRequest,
@@ -14,14 +15,39 @@ router = APIRouter(prefix="/users", tags=["User Management"])
 
 
 @router.post("")
-async def create_user(request: CreateUserRequest, db: Session = Depends(get_db)):
+async def create_user(
+    request: CreateUserRequest,
+    authorization: str = Header(...),
+    db: Session = Depends(require_role(["Administrator"]))
+):
     """
     Creates a new user to the system. Sets username and activation code.
     Authorization: Administrator
     """
-    # TODO: Verify role
+    from models.models import Session as SessionModel, User
+    import time
+
+    # Get the issuer (admin) information from session
+    session_token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+    session = db.query(SessionModel).filter(
+        SessionModel.session_token == session_token,
+        SessionModel.expires_at > int(time.time())
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    issuer = db.query(User).filter(User.id == session.user_id).first()
+    if not issuer or not issuer.organization_id:
+        raise HTTPException(status_code=400, detail="Admin user has no organization")
+
     try:
-        result = UserManagementService.create_user(db, request.username)
+        result = UserManagementService.create_user(
+            db=db,
+            username=request.username,
+            issuer_id=issuer.id,
+            organization_id=issuer.organization_id
+        )
         return {
             "user_id": result["user"].id,
             "username": result["user"].username,

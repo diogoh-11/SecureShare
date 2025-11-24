@@ -125,8 +125,6 @@ class Transfer(Base):
     expiration_time = Column(DateTime)
     classification_level_id = Column(Integer, ForeignKey('clearance_levels.id'), nullable=False)
     sender_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    organization_id = Column(Integer, ForeignKey('organizations.id'), nullable=False)
-
 
 class TransferKey(Base):
     __tablename__ = 'transfer_keys'
@@ -151,7 +149,6 @@ class RoleToken(Base):
     expires_at = Column(DateTime)
     target_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     issuer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    organization_id = Column(Integer, ForeignKey('organizations.id'), nullable=False)
 
 
 class RoleRevocation(Base):
@@ -170,4 +167,3 @@ class ClearanceToken(Base):
     issuer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     clearance_level_id = Column(Integer, ForeignKey('clearance_levels.id'), nullable=False)
-    organization_id = Column(Integer, ForeignKey('organizations.id'), nullable=False)

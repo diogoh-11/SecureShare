@@ -1,6 +1,8 @@
 import hashlib
 import secrets
 
+
+
 def sha256(code: str) -> str:
     """Hash using SHA-256"""
     return hashlib.sha256(code.encode()).hexdigest()

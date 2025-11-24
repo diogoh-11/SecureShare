@@ -4,6 +4,7 @@ from schemas.schemas import CreateOrganizationRequest
 from enums import RoleEnum
 import secrets
 from utils.funcs import generate_codes, sha256
+from utils.rbac import role2user
 
 
 class OrganizationService:
@@ -91,20 +92,11 @@ class OrganizationService:
             user_id: ID of the newly activated user
             organization_id: ID of the organization to grant admin rights for
         """
-        # Get Administrator role
-        admin_role = db.query(Role).filter(Role.label == RoleEnum.ADMINISTRATOR.value).first()
-
-        if not admin_role:
-            raise ValueError("Required roles not seeded in database")
-
-        # Create RoleToken for admin (self-issued, no expiration)
-        role_token = RoleToken(
-            role_id=admin_role.id,
-            signature=b"bootstrap",  # Bootstrap signature for initial admin
-            expires_at=None,  # No expiration
-            target_id=user_id,
-            issuer_id=user_id,  # Self-issued
-            organization_id=organization_id
+        role2user(
+            db,
+            b"bootstrap",
+            RoleEnum.ADMINISTRATOR.value,
+            None,
+            user_id,
+            user_id
         )
-        db.add(role_token)
-        db.commit()
