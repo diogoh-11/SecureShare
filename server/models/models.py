@@ -33,6 +33,7 @@ class User(Base):
     private_key_blob = Column(LargeBinary, nullable=True)
     is_active = Column(Boolean, default=False)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    password_hash = Column(String, nullable=True)
 
 class RecoveryTokens(Base):
     __tablename__ = 'recovery_tokens'
@@ -41,32 +42,6 @@ class RecoveryTokens(Base):
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
     hashed_value = Column(String, unique=True, nullable=False)
     is_used = Column(Boolean, default=False, nullable=False)
-
-
-class WebAuthnCredential(Base):
-    """cridentials for fido2"""
-    #TODO: may need more indo idk
-    __tablename__ = 'webauthn_credentials'
-
-    id =            Column(Integer, primary_key=True, index=True)
-    user_id =       Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
-    credential_id = Column(LargeBinary, unique=True, nullable=False, index=True)
-    public_key =    Column(LargeBinary, nullable=False)
-    sign_count =    Column(Integer, default=0, nullable=False)
-    created_at =    Column(Integer, default=lambda: int(time.time()), nullable=False)
-
-
-class WebAuthnChallenge(Base):
-    """challenges for validation"""
-    __tablename__ = 'webauthn_challenges'
-
-    id =                Column(Integer, primary_key=True, index=True)
-    username =          Column(String, nullable=False, index=True)
-    challenge =         Column(LargeBinary, nullable=False)
-    expires_at =        Column(Integer, nullable=False)
-    challenge_type =    Column(String, nullable=False) # TOCHECK: better approach for this line
-    is_used =           Column(Boolean, default=False, nullable=False)
-
 
 class Session(Base):
     """Session management"""

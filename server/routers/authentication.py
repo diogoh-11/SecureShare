@@ -2,25 +2,23 @@ from fastapi import APIRouter, HTTPException, Depends, Response, Header, Request
 from sqlalchemy.orm import Session
 from database import get_db
 from services.auth_service import AuthService
+from utils.funcs import required
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/activate")
-async def activate(request: dict, req: Request, db: Session = Depends(get_db)):
+async def activate(request: dict, db: Session = Depends(get_db)):
     auth_service = AuthService(db)
     username = request.get("username")
     activation_code = request.get("activation_code")
+    password = request.get("password")
 
     # invalid request if no username is provided
-    if not username:
-        raise HTTPException(status_code=400, detail="Username required")
-    if not activation_code:
-        raise HTTPException(status_code=400, detail="Activation code required")
+    required(username,"Username")
+    required(activation_code,"Activation code")
+    required(password, "Password")
 
-    # get origin
-    origin = f"{req.url.scheme}://{req.headers.get('host')}"
-
-    result = auth_service.complete_registration(username, request, activation_code, origin)
+    result = auth_service.activate(username, password, activation_code)
 
     # check if registration worked
     if not result:
@@ -28,18 +26,16 @@ async def activate(request: dict, req: Request, db: Session = Depends(get_db)):
     return result
 
 @router.post("/login")
-async def verify_login(request: dict, req: Request, response: Response, db: Session = Depends(get_db)):
+async def verify_login(request: dict, response: Response, db: Session = Depends(get_db)):
     auth_service = AuthService(db)
     username = request.get("username")
+    password = request.get("password")
 
     # invalid request if no username is provided
-    if not username:
-        raise HTTPException(status_code=400, detail="Username required")
+    required(username, "Username")
+    required(password, "Password")
 
-    # Get origin from request
-    origin = f"{req.url.scheme}://{req.headers.get('host')}"
-
-    result = auth_service.complete_authentication(username, request, origin)
+    result = auth_service.validate(username, password)
     if not result:
         raise HTTPException(status_code=400, detail="Login failed")
 
@@ -63,17 +59,6 @@ async def logout(
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
     return result
-
-# TODO: ask professor if can add more endpoints - vcnt
-@router.get("/activate/challenge")
-async def get_registration_challenge(username: str, activation_code: str, db: Session = Depends(get_db)):
-    auth_service = AuthService(db)
-    return auth_service.generate_registration_challenge(username,activation_code)
-
-@router.get("/login/challenge")
-async def get_login_challenge(username: str, db: Session = Depends(get_db)):
-    auth_service = AuthService(db)
-    return auth_service.generate_authentication_challenge(username)
 
 @router.get("/validate")
 async def validate_session(

@@ -4,8 +4,8 @@ import uvicorn
 from database import engine, Base, SessionLocal
 from models.models import (
     Organization, User, Department, ClearanceLevel,
-    Transfer, TransferKey, Role, RoleToken, RoleRevocation, ClearanceToken,
-    WebAuthnCredential, WebAuthnChallenge, Session, RecoveryTokens
+    Transfer, TransferKey, Role, RoleToken, RoleRevocation,
+    ClearanceToken, Session, RecoveryTokens
 )
 
 from routers import api, ui
