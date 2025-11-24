@@ -5,7 +5,7 @@ from fastapi import HTTPException, Header, Depends
 from database import get_db
 from models.models import Role, RoleToken
 
-def role2user(db: Session, signature: bytes, role: str, expires_at: Optional[int], target_id: int, issuer_id: int, organization_id: int):
+def role2user(db: Session, signature: bytes, role: str, expires_at: Optional[int], target_id: int, issuer_id: int):
     """
     Assign a role to a user.
 
@@ -29,7 +29,6 @@ def role2user(db: Session, signature: bytes, role: str, expires_at: Optional[int
         expires_at=expires_at,
         target_id=target_id,
         issuer_id=issuer_id,
-        organization_id=organization_id
     )
 
     db.add(role_token)

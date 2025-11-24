@@ -4,12 +4,12 @@ from fastapi.responses import FileResponse
 router = APIRouter(prefix="/ui", tags=["UI"])
 
 
-@router.get("/test")
-async def test_page():
-    """Serve FIDO2 test page"""
-    return FileResponse("static/test-register.html")
+@router.get("/register")
+async def register_page():
+    """Serve simple black/white registration page for TUI"""
+    return FileResponse("static/ui/register.html")
 
-@router.get("/test/res")
-async def test_page_res():
-    """Serve FIDO2 test page"""
-    return FileResponse("static/test-login.html")
+@router.get("/login")
+async def login_page():
+    """Serve simple black/white login page for TUI"""
+    return FileResponse("static/ui/login.html")

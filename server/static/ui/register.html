@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SShare - Register</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: #000;
+            color: #fff;
+            font-family: monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            width: 100%;
+            border: 2px solid #fff;
+            padding: 40px;
+        }
+        h1 {
+            font-size: 48px;
+            text-align: center;
+            margin-bottom: 40px;
+            letter-spacing: 8px;
+        }
+        .status {
+            padding: 20px;
+            border: 1px solid #fff;
+            margin-bottom: 20px;
+            min-height: 100px;
+        }
+        .token-display {
+            margin-top: 20px;
+            padding: 20px;
+            border: 2px solid #fff;
+            word-wrap: break-word;
+            display: none;
+        }
+        button {
+            background-color: #fff;
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-family: monospace;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 20px;
+        }
+        button:hover { background-color: #ccc; }
+        button:disabled {
+            background-color: #444;
+            color: #888;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SSHARE</h1>
+        <div class="status" id="status">Ready to register...</div>
+        <button id="registerBtn" onclick="startRegistration()">START REGISTRATION</button>
+        <div class="token-display" id="tokenDisplay"></div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const username = urlParams.get('username');
+        const activationCode = urlParams.get('code');
+        const API_BASE = window.location.origin + '/api/auth';
+
+        if (!username || !activationCode) {
+            document.getElementById('status').textContent = 'ERROR: Missing username or activation code in URL';
+            document.getElementById('registerBtn').disabled = true;
+        }
+
+        function arrayBufferToBase64(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+
+        function base64ToArrayBuffer(base64) {
+            if (!base64) throw new Error('Invalid base64 input');
+            if (base64 instanceof ArrayBuffer) return base64;
+            const base64String = String(base64).replace(/-/g, '+').replace(/_/g, '/');
+            const binaryString = atob(base64String);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        async function startRegistration() {
+            const btn = document.getElementById('registerBtn');
+            const status = document.getElementById('status');
+            const tokenDisplay = document.getElementById('tokenDisplay');
+
+            try {
+                btn.disabled = true;
+                status.textContent = 'Fetching registration challenge...';
+
+                const challengeResponse = await fetch(
+                    `${API_BASE}/activate/challenge?username=${encodeURIComponent(username)}&activation_code=${encodeURIComponent(activationCode)}`
+                );
+
+                if (!challengeResponse.ok) {
+                    const error = await challengeResponse.json();
+                    throw new Error(error.detail || 'Failed to get challenge');
+                }
+
+                const optionsData = await challengeResponse.json();
+                const options = typeof optionsData === 'string' ? JSON.parse(optionsData) : optionsData;
+
+                if (options.challenge) options.challenge = base64ToArrayBuffer(options.challenge);
+                if (options.user && options.user.id) options.user.id = base64ToArrayBuffer(options.user.id);
+                if (options.excludeCredentials && options.excludeCredentials.length > 0) {
+                    options.excludeCredentials = options.excludeCredentials.map(cred => ({
+                        ...cred,
+                        id: base64ToArrayBuffer(cred.id)
+                    }));
+                }
+
+                status.textContent = 'Please use your authenticator (fingerprint, security key, phone)...';
+
+                const credential = await navigator.credentials.create({ publicKey: options });
+                if (!credential) throw new Error('Credential creation failed');
+
+                status.textContent = 'Completing registration...';
+
+                const credentialJSON = {
+                    username: username,
+                    activation_code: activationCode,
+                    id: credential.id,
+                    rawId: arrayBufferToBase64(credential.rawId),
+                    response: {
+                        clientDataJSON: arrayBufferToBase64(credential.response.clientDataJSON),
+                        attestationObject: arrayBufferToBase64(credential.response.attestationObject)
+                    },
+                    type: credential.type
+                };
+
+                const activateResponse = await fetch(`${API_BASE}/activate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(credentialJSON)
+                });
+
+                if (!activateResponse.ok) {
+                    const error = await activateResponse.json();
+                    throw new Error(error.detail || 'Registration failed');
+                }
+
+                const result = await activateResponse.json();
+                status.textContent = 'SUCCESS! Registration completed.';
+                tokenDisplay.style.display = 'block';
+                tokenDisplay.textContent = `Registration successful for user: ${username}`;
+                btn.style.display = 'none';
+
+            } catch (error) {
+                status.textContent = 'ERROR: ' + error.message;
+                btn.disabled = false;
+            }
+        }
+
+        if (!window.PublicKeyCredential) {
+            document.getElementById('status').textContent = 'ERROR: WebAuthn not supported in this browser';
+            document.getElementById('registerBtn').disabled = true;
+        }
+    </script>
+</body>
+</html>

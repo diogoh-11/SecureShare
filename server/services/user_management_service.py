@@ -47,7 +47,7 @@ class UserManagementService:
 
         db.commit()
         db.refresh(user)
-        
+
         # Assign Standard User role
         from enums import RoleEnum
         role2user(
@@ -57,7 +57,6 @@ class UserManagementService:
             expires_at=None,  # No expiration
             target_id=user.id,
             issuer_id=issuer_id,
-            organization_id=organization_id
         )
 
         return {
