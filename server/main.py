@@ -40,7 +40,7 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8443,
-        ssl_keyfile="/app/certs/key.pem",
-        ssl_certfile="/app/certs/cert.pem",
+        ssl_keyfile="certs/key.pem",
+        ssl_certfile="certs/cert.pem",
         reload=True
     )

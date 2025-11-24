@@ -84,11 +84,16 @@ class TransferResponse(BaseModel):
 class CreateOrganizationRequest(BaseModel):
     org_name: str
     admin_username: str
-    admin_fido2_public_key: str  # For FIDO2 authentication
-    admin_public_key: str  # For file encryption
-    admin_private_key_blob: str  # Encrypted private key for file decryption
+
+
+class OrganizationCreationResponse(BaseModel):
+    message: str
+    username: str
+    activation_code: str
+    org_name: str
 
 
 class OrganizationResponse(BaseModel):
     id: int
     admin_id: int
+    name: str

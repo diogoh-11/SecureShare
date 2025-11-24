@@ -23,7 +23,6 @@ COPY models/ ./models/
 COPY services/ ./services/
 COPY utils/ ./utils/
 COPY static/ ./static/
-COPY middlewares/ ./middlewares/
 
 
 RUN mkdir -p transfers

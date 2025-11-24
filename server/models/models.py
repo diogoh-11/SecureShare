@@ -24,7 +24,6 @@ class Organization(Base):
     admin_id = Column(Integer, ForeignKey('users.id'))
     name = Column(String, unique=True, nullable = False)
 
-
 class User(Base):
     __tablename__ = 'users'
 
@@ -33,6 +32,7 @@ class User(Base):
     public_key = Column(LargeBinary, unique=True, nullable=True)
     private_key_blob = Column(LargeBinary, nullable=True)
     is_active = Column(Boolean, default=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
 
 class RecoveryTokens(Base):
     __tablename__ = 'recovery_tokens'
