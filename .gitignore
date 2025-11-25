@@ -1,0 +1,163 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.envrc
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+secureshare.db
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Flask
+instance/
+.webassets-cache
+
+# Coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath
+*.sage.py
+
+# Spyder
+.spyderproject
+.spyproject
+
+# Rope
+.ropeproject
+
+# mkdocs
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre
+.pyre/
+
+# SecureShare Specific
+# ------------------
+
+# Uploaded files (encrypted blobs)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Cryptographic keys
+backend/keys/
+backend/certs/
+server/certs/
+*.pem
+*.key
+*.crt
+*.der
+*.p12
+*.pfx
+
+# Client configuration
+client/.secureshare/
+client/config.json
+
+# Database backups
+*.db.backup
+*.sqlite.backup
+
+# Documentation builds
+docs/_build/
+docs/.doctrees/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+tmp/
+temp/
+
+# Migration files (opcional - descomentar para não versionar)
+# backend/migrations/versions/*.py
+
+.claude
