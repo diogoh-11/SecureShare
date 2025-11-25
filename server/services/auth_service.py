@@ -36,7 +36,7 @@ class AuthService:
 
         return user, token
 
-    def activate(self, username:str, password:str, activation_code:str):
+    def activate(self, username:str, password:str, activation_code:str, public_key:str, private_key_blob:str):
 
         user,token = self._validate_code(activation_code,username)
         if not token or not user:
@@ -46,6 +46,11 @@ class AuthService:
         # store user password
         user.password_hash = sha256(password)
         user.is_active = True
+        
+        # store cryptographic keys (required)
+        user.public_key = public_key.encode('utf-8')
+        user.private_key_blob = private_key_blob.encode('utf-8')
+        
         token.is_used = True
         self.db.commit()
 
@@ -65,7 +70,7 @@ class AuthService:
                 pass
 
 
-        return {"verified": True, "user_id":user.id, "username":username}
+        return {"success": True, "user_id":user.id, "username":username}
 
     def validate(self, username, password):
         user: User|None = self.db.query(User).filter(User.username == username).first()

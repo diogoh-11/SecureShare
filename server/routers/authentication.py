@@ -12,13 +12,17 @@ async def activate(request: dict, db: Session = Depends(get_db)):
     username = request.get("username")
     activation_code = request.get("activation_code")
     password = request.get("password")
+    public_key = request.get("public_key")
+    private_key_blob = request.get("private_key_blob")
 
     # invalid request if no username is provided
     required(username,"Username")
     required(activation_code,"Activation code")
     required(password, "Password")
+    required(public_key, "Public key")
+    required(private_key_blob, "Private key blob")
 
-    result = auth_service.activate(username, password, activation_code)
+    result = auth_service.activate(username, password, activation_code, public_key, private_key_blob)
 
     # check if registration worked
     if not result:

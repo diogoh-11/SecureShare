@@ -87,6 +87,7 @@ class CreateOrganizationRequest(BaseModel):
 
 
 class OrganizationCreationResponse(BaseModel):
+    success:bool
     message: str
     username: str
     activation_code: str

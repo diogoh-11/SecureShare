@@ -114,7 +114,6 @@ def get_active_user_roles(db: Session, user_id: int) -> set[str]:
         Role, RoleToken.role_id == Role.id
     ).filter(
         RoleToken.target_id == user_id,
-        RoleToken.organization_id == user.organization_id
     ).all()
 
     for role_token, role in role_tokens:
