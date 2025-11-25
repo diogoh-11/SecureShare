@@ -4,16 +4,17 @@ import uvicorn
 from database import engine, Base, SessionLocal
 from models.models import (
     Organization, User, Department, ClearanceLevel,
-    Transfer, TransferKey, Role, RoleToken, RoleRevocation, ClearanceToken
+    Transfer, TransferKey, Role, RoleToken, RoleRevocation,
+    ClearanceToken, Session, RecoveryTokens
 )
 
-from routers import authentication, user_management, department_management, file_transfer, organization_management
+from routers import api, ui
 from services.seed_service import SeedService
 
 app = FastAPI(
     title="SShare",
     description="SIO 25/26 university project",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 # init db
@@ -30,26 +31,16 @@ async def startup_event():
         db.close()
 
 # include routers
-app.include_router(organization_management.router)
-app.include_router(authentication.router)
-app.include_router(user_management.router)
-app.include_router(department_management.router)
-app.include_router(file_transfer.router)
+app.include_router(api.api_router, prefix="/api")
+app.include_router(ui.router)
 
-@app.get("/")
-async def root():
-    return {"status": "ok", "message": "SShare API is running"}
-
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
 
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=8443,
-        ssl_keyfile="/app/certs/key.pem",
-        ssl_certfile="/app/certs/cert.pem",
+        ssl_keyfile="certs/key.pem",
+        ssl_certfile="certs/cert.pem",
         reload=True
     )

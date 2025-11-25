@@ -1,8 +1,7 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, LargeBinary, Table
-from datetime import datetime
+import time
 from database import Base
 
-# Many-to-many: User <-> Department
 user_department = Table(
     'user_department',
     Base.metadata,
@@ -10,7 +9,6 @@ user_department = Table(
     Column('department_id', Integer, ForeignKey('departments.id'), primary_key=True)
 )
 
-# Many-to-many: ClearanceToken <-> Department
 clearance_department = Table(
     'clearance_department',
     Base.metadata,
@@ -26,15 +24,16 @@ class Organization(Base):
     admin_id = Column(Integer, ForeignKey('users.id'))
     name = Column(String, unique=True, nullable = False)
 
-
 class User(Base):
     __tablename__ = 'users'
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, nullable=False)
-    public_key = Column(LargeBinary, unique=True, nullable=False)
-    private_key_blob = Column(LargeBinary, nullable=False)
-    is_active = Column(Boolean, default=True)
+    public_key = Column(LargeBinary, unique=True, nullable=True)
+    private_key_blob = Column(LargeBinary, nullable=True)
+    is_active = Column(Boolean, default=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    password_hash = Column(String, nullable=True)
 
 class RecoveryTokens(Base):
     __tablename__ = 'recovery_tokens'
@@ -42,6 +41,17 @@ class RecoveryTokens(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
     hashed_value = Column(String, unique=True, nullable=False)
+    is_used = Column(Boolean, default=False, nullable=False)
+
+class Session(Base):
+    """Session management"""
+    __tablename__ = 'sessions'
+
+    id =            Column(Integer, primary_key=True, index=True)
+    user_id =       Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    session_token = Column(String, unique=True, nullable=False, index=True)
+    created_at =    Column(Integer, default=lambda: int(time.time()), nullable=False)
+    expires_at =    Column(Integer, nullable=False)
 
 
 class AuditLog(Base):
@@ -90,8 +100,6 @@ class Transfer(Base):
     expiration_time = Column(DateTime)
     classification_level_id = Column(Integer, ForeignKey('clearance_levels.id'), nullable=False)
     sender_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    organization_id = Column(Integer, ForeignKey('organizations.id'), nullable=False)
-
 
 class TransferKey(Base):
     __tablename__ = 'transfer_keys'
@@ -116,7 +124,6 @@ class RoleToken(Base):
     expires_at = Column(DateTime)
     target_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     issuer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    organization_id = Column(Integer, ForeignKey('organizations.id'), nullable=False)
 
 
 class RoleRevocation(Base):
@@ -135,4 +142,3 @@ class ClearanceToken(Base):
     issuer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     clearance_level_id = Column(Integer, ForeignKey('clearance_levels.id'), nullable=False)
-    organization_id = Column(Integer, ForeignKey('organizations.id'), nullable=False)
