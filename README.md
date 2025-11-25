@@ -73,12 +73,3 @@ SELECT * FROM organizations;
 API endpoints are detailed on `/docs`.
 
 
-
-
-curl -k -X POST "https://localhost:8443/api/users/activate" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "admin",
-    "activation_code": "k3XvVoENalUA3w02",
-    "password":"admin",
-  }'
