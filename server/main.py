@@ -8,7 +8,7 @@ from models.models import (
     ClearanceToken, Session, RecoveryTokens
 )
 
-from routers import api, ui
+from routers import api
 from services.seed_service import SeedService
 
 app = FastAPI(
@@ -32,8 +32,6 @@ async def startup_event():
 
 # include routers
 app.include_router(api.api_router, prefix="/api")
-app.include_router(ui.router)
-
 
 if __name__ == "__main__":
     uvicorn.run(
