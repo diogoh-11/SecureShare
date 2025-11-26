@@ -101,7 +101,7 @@ class APIClient:
 
             # validate response
             if res.get("success") is True:
-                self._output = f"{res['message']}\n{res['username']}\n{res['activation_code']}\n{res['org_name']}"
+                self._output = f"{res['message']}\nUsername: {res['username']}\nActivationCode: {res['activation_code']}\nOrgName: {res['org_name']}"
                 return True
             else:
                 return False

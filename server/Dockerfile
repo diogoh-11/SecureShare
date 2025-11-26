@@ -22,7 +22,6 @@ COPY schemas/ ./schemas/
 COPY models/ ./models/
 COPY services/ ./services/
 COPY utils/ ./utils/
-COPY static/ ./static/
 
 
 RUN mkdir -p transfers
