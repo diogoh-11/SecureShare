@@ -1,13 +1,12 @@
 from sqlalchemy.orm import Session
 import os
 import time
-import secrets
 from utils.funcs import sha256
+from utils.jwt_utils import create_access_token, verify_token
 
 from models.models import (
     User,
     RecoveryTokens,
-    Session as SessionModel,
     Organization
 )
 
@@ -32,7 +31,7 @@ class AuthService:
             RecoveryTokens.user_id == user.id,
             RecoveryTokens.hashed_value == hashed_code,
             RecoveryTokens.is_used == False
-        )
+        ).first()
 
         return user, token
 
@@ -46,11 +45,11 @@ class AuthService:
         # store user password
         user.password_hash = sha256(password)
         user.is_active = True
-        
+
         # store cryptographic keys (required)
         user.public_key = public_key.encode('utf-8')
         user.private_key_blob = private_key_blob.encode('utf-8')
-        
+
         token.is_used = True
         self.db.commit()
 
@@ -86,40 +85,40 @@ class AuthService:
             print(f"Wrong user password for {username}")
             return None
 
-        session_token = secrets.token_urlsafe(32)
-        current_time = int(time.time())
-        session_expires = current_time + (24 * 60 * 60)  # 24 hours
-
-        # create session
-        new_session = SessionModel(
-            user_id=user.id,
-            session_token=session_token,
-            expires_at=session_expires
-        )
-        self.db.add(new_session)
-        self.db.commit()
+        token_data = {
+            "sub": user.id,
+            "username": username,
+            "organization_id": user.organization_id
+        }
+        access_token = create_access_token(token_data)
 
         return {
-                "success": True,
-                "user_id": user.id,
-                "username": username,
-                "session_token": session_token
-            }
+            "success": True,
+            "user_id": user.id,
+            "username": username,
+            "access_token": access_token,
+            "token_type": "bearer"
+        }
 
-    def logout(self,session_token:str):
-        """Invalidate a session"""
-        session = self.db.query(SessionModel).filter(
-            SessionModel.session_token == session_token
-        ).first()
-
-        if not session:
-            print("[ERROR] Session not found")
+    def logout(self, token: str):
+        payload = verify_token(token)
+        if not payload:
             return None
 
-        # delete the session
-        self.db.delete(session)
-        self.db.commit()
+        return {"success": True, "message": "Logged out successfully"}
 
-        print("[DEBUG] Session logged out successfully")
-        return {"success": True,
-                "message": "Logged out successfully"}
+    def validate_session(self, token: str):
+        payload = verify_token(token)
+        if not payload:
+            return None
+
+        user = self.db.query(User).filter(User.id == payload.get("sub")).first()
+        if not user:
+            return None
+
+        return {
+            "valid": True,
+            "user_id": payload.get("sub"),
+            "username": payload.get("username"),
+            "organization_id": payload.get("organization_id")
+        }

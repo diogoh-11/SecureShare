@@ -10,6 +10,7 @@ from models.models import (
 
 from routers import api
 from services.seed_service import SeedService
+from utils.jwt_utils import init_signing_keys
 
 app = FastAPI(
     title="SShare",
@@ -17,12 +18,13 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# init db
 @app.on_event("startup")
 async def startup_event():
-    """Create database tables and seed initial data on startup"""
     Base.metadata.create_all(bind=engine)
     print("Database initialized successfully!")
+
+    init_signing_keys()
+    print("Signing keys initialized successfully!")
 
     db = SessionLocal()
     try:

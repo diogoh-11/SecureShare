@@ -30,20 +30,17 @@ async def activate(request: dict, db: Session = Depends(get_db)):
     return result
 
 @router.post("/login")
-async def verify_login(request: dict, response: Response, db: Session = Depends(get_db)):
+async def verify_login(request: dict, db: Session = Depends(get_db)):
     auth_service = AuthService(db)
     username = request.get("username")
     password = request.get("password")
 
-    # invalid request if no username is provided
     required(username, "Username")
     required(password, "Password")
 
     result = auth_service.validate(username, password)
     if not result:
         raise HTTPException(status_code=400, detail="Login failed")
-
-    response.set_cookie(key="session_token", value=result["session_token"], httponly=True, secure=True, samesite="strict")
 
     return result
 
@@ -54,13 +51,12 @@ async def logout(
 ):
     auth_service = AuthService(db)
 
-    #extract session token
-    session_token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+    token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
 
-    result = auth_service.logout(session_token)
+    result = auth_service.logout(token)
 
     if not result:
-        raise HTTPException(status_code=401, detail="Invalid or expired session")
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     return result
 
@@ -71,12 +67,11 @@ async def validate_session(
 ):
     auth_service = AuthService(db)
 
-    #extract session token
-    session_token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+    token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
 
-    result = auth_service.validate_session(session_token)
+    result = auth_service.validate_session(token)
 
     if not result:
-        raise HTTPException(status_code=401, detail="Invalid or expired session")
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     return result

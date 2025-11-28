@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, LargeBinary, Table
 import time
+from datetime import datetime
 from database import Base
 
 user_department = Table(
@@ -13,6 +14,13 @@ clearance_department = Table(
     'clearance_department',
     Base.metadata,
     Column('clearance_token_id', Integer, ForeignKey('clearance_tokens.id'), primary_key=True),
+    Column('department_id', Integer, ForeignKey('departments.id'), primary_key=True)
+)
+
+transfer_department = Table(
+    'transfer_department',
+    Base.metadata,
+    Column('transfer_id', Integer, ForeignKey('transfers.id'), primary_key=True),
     Column('department_id', Integer, ForeignKey('departments.id'), primary_key=True)
 )
 
@@ -100,6 +108,10 @@ class Transfer(Base):
     expiration_time = Column(DateTime)
     classification_level_id = Column(Integer, ForeignKey('clearance_levels.id'), nullable=False)
     sender_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    file_path = Column(String, nullable=False)
+    original_filename = Column(String, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now())
+    public_access_token = Column(String, nullable=True, unique=True)
 
 class TransferKey(Base):
     __tablename__ = 'transfer_keys'

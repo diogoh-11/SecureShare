@@ -1,9 +1,9 @@
 import time
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Tuple
 from fastapi import HTTPException, Header, Depends
 from database import get_db
-from models.models import Role, RoleToken
+from models.models import Role, RoleToken, User
 
 def role2user(db: Session, signature: bytes, role: str, expires_at: Optional[int], target_id: int, issuer_id: int):
     """
@@ -51,28 +51,22 @@ def require_role(required_roles: list[str]):
         authorization: str = Header(...),
         db: Session = Depends(get_db)
     ):
-        from models.models import Session as SessionModel, User
+        from models.models import User
+        from utils.jwt_utils import verify_token
 
-        # Extract session token
-        session_token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
 
-        # Get user from session token
-        session = db.query(SessionModel).filter(
-            SessionModel.session_token == session_token,
-            SessionModel.expires_at > int(time.time())
-        ).first()
+        payload = verify_token(token)
+        if not payload:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-        if not session:
-            raise HTTPException(status_code=401, detail="Invalid or expired session")
-
-        user = db.query(User).filter(User.id == session.user_id).first()
+        user_id = payload.get("sub")
+        user = db.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
 
-        # Get user's active roles
         user_roles = get_active_user_roles(db, user.id)
 
-        # Check if user has any of the required roles
         if not any(role in user_roles for role in required_roles):
             raise HTTPException(
                 status_code=403,
@@ -134,3 +128,19 @@ def get_active_user_roles(db: Session, user_id: int) -> set[str]:
         response.add(role.label)
 
     return response
+
+def get_current_user(authorization: str = Header(...), db: Session = Depends(get_db)) -> Tuple[User, Session]:
+    from utils.jwt_utils import verify_token
+
+    token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+
+    payload = verify_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    user_id = payload.get("sub")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    return user, db
