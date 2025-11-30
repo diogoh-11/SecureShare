@@ -28,7 +28,6 @@ async def create_transfer(
     file: UploadFile = File(...),
     classification_level: str = Form(...),
     departments: str = Form("[]"),
-    file_key: str = Form(None),
     expiration_days: int = Form(7),
     transfer_mode: str = Form("user"),
     recipients: str = Form("[]"),
@@ -39,15 +38,12 @@ async def create_transfer(
 
     try:
         dept_list = json.loads(departments) if departments else []
-        recipient_list = json.loads(recipients) if recipients else []
+        recipients_dict = json.loads(recipients) if recipients else {}
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON in departments or recipients")
 
     if not classification_level:
         raise HTTPException(status_code=400, detail="classification_level required")
-
-    if not file_key:
-        raise HTTPException(status_code=400, detail="file_key required")
 
     trusted = is_trusted_officer(db, user.id)
     if not trusted:
@@ -63,8 +59,8 @@ async def create_transfer(
     try:
         transfer = TransferService.create_transfer_with_key_encryption(
             db, user.id, file_content, file.filename,
-            classification_level, dept_list, file_key, expiration_days,
-            transfer_mode, recipient_list
+            classification_level, dept_list, expiration_days,
+            transfer_mode, recipients_dict
         )
 
         AuditService.log_action(

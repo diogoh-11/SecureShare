@@ -5,6 +5,7 @@ import json
 import getpass
 import base64
 import os
+from webbrowser import get
 import zipfile
 import tempfile
 from api_client import APIClient
@@ -198,13 +199,26 @@ def cmd_transfer_upload(args):
     file_key = km.generate_file_key()
     encrypted_file_data = km.encrypt_file(file_data, file_key)
 
+    recipients_dict = {}
+
+
+    for r in recipients:
+        res = client.get_user_key(r)
+        key = res.json().get("public_key",None)
+        if key is None:
+            continue
+        # encrypt key
+        ekey = km.encrypt_with_public_key(file_key, key)
+
+        recipients_dict[r] = ekey
+
     # Determine transfer mode
     if args.public:
         transfer_mode = "public"
         print("Creating public transfer (anyone with link can download)...")
         print("Key will be included in URL fragment (client-side decryption)")
     else:
-        transfer_mode = "user" if recipients else ("department" if departments else "organization")
+        transfer_mode = "user"
         print(f"Uploading encrypted file (mode: {transfer_mode})...")
         print("Server will encrypt keys for recipients based on mode.")
 
@@ -216,7 +230,7 @@ def cmd_transfer_upload(args):
         file_key,  # Send the file key, server will encrypt for recipients (or not for public)
         args.expiration,
         transfer_mode,
-        recipients
+        recipients_dict,
     )
 
     data = handle_response(response, "File uploaded and encrypted successfully")
@@ -226,7 +240,7 @@ def cmd_transfer_upload(args):
         server = get_config("server", DEFAULT_SERVER)
         file_key_b64 = base64.b64encode(file_key).decode('utf-8')
         public_url = f"{server}/api/public/{data['public_access_token']}#{file_key_b64}"
-        print(f"\nPublic URL (share this link):")
+        print("\nPublic URL (share this link):")
         print(public_url)
         print("\nNote: The key is in the URL fragment (#) and never sent to the server.")
 
@@ -409,7 +423,7 @@ def main():
 Examples:
   sshare config set-server https://localhost:8443
   sshare org create --name "ACME Corp" --admin admin
-  sshare activate --username admin --code CODE --password pass123 --public-key PK --private-key-blob BLOB
+  sshare activate --username admin --code CODE --password pass123
   sshare login --username admin --password pass123
   sshare dept create --name Engineering
   sshare user create --username alice

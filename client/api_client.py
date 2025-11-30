@@ -114,13 +114,16 @@ class APIClient:
     def get_user_public_key(self, user_id: int):
         return self.get(f"/api/users/{user_id}/key")
 
+    def get_user_private_key(self):
+        return self.get("/api/users/me/vault")
+
     def get_user_info(self):
         return self.get("/api/users/me/info")
 
     def update_password(self, new_password: str):
         return self.post("/api/users/me/info", {"password": new_password})
 
-    def upload_transfer(self, encrypted_file_data: bytes, original_filename: str, classification_level: str, departments: list, file_key: bytes, expiration_days: int = 7, transfer_mode: str = "user", recipients: list = None):
+    def upload_transfer(self, encrypted_file_data: bytes, original_filename: str, classification_level: str, departments: list, file_key: bytes, expiration_days: int = 7, transfer_mode: str = "user", recipients: dict = None):
         import base64
         files = {'file': (original_filename, encrypted_file_data)}
         data = {
@@ -129,7 +132,7 @@ class APIClient:
             'file_key': base64.b64encode(file_key).decode('utf-8'),
             'expiration_days': str(expiration_days),
             'transfer_mode': transfer_mode,
-            'recipients': json.dumps(recipients if recipients else [])
+            'recipients': recipients
         }
         return self.post("/api/transfers", data=data, files=files)
 
