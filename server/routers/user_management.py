@@ -23,7 +23,8 @@ async def create_user(
     user, _ = user_db
 
     if not user.organization_id:
-        raise HTTPException(status_code=400, detail="Admin user has no organization")
+        raise HTTPException(
+            status_code=400, detail="Admin user has no organization")
 
     try:
         result = UserManagementService.create_user(
@@ -64,7 +65,8 @@ async def delete_user(
     if not success:
         raise HTTPException(status_code=404, detail="User not found")
 
-    AuditService.log_action(db, user.id, "DELETE_USER", {"deleted_user_id": user_id})
+    AuditService.log_action(db, user.id, "DELETE_USER", {
+                            "deleted_user_id": user_id})
 
     return {"status": "deleted"}
 
@@ -81,8 +83,10 @@ async def update_user_role(
     user, _ = user_db
 
     try:
-        role_token = RoleService.assign_role(db, user.id, user_id, request.role, expires_in_days=365)
-        AuditService.log_action(db, user.id, "ASSIGN_ROLE", {"target_user_id": user_id, "role": request.role})
+        role_token = RoleService.assign_role(
+            db, user.id, user_id, request.role, expires_in_days=365)
+        AuditService.log_action(db, user.id, "ASSIGN_ROLE", {
+                                "target_user_id": user_id, "role": request.role})
 
         return {
             "success": True,
@@ -107,7 +111,8 @@ async def get_user_clearance(
         from utils.rbac import get_active_user_roles
         roles = get_active_user_roles(db, user.id)
         if "Security Officer" not in roles and "Administrator" not in roles:
-            raise HTTPException(status_code=403, detail="Can only view own clearances")
+            raise HTTPException(
+                status_code=403, detail="Can only view own clearances")
 
     clearances = ClearanceService.get_user_clearances(db, user_id)
     return {"clearances": clearances}
@@ -130,7 +135,8 @@ async def add_user_clearance(
         )
         AuditService.log_action(
             db, user.id, "ASSIGN_CLEARANCE",
-            {"target_user_id": user_id, "level": request.clearance_level, "departments": request.departments}
+            {"target_user_id": user_id, "level": request.clearance_level,
+                "departments": request.departments}
         )
 
         return {
@@ -155,7 +161,8 @@ async def revoke_token(
 
     try:
         RoleService.revoke_role(db, user.id, token_id)
-        AuditService.log_action(db, user.id, "REVOKE_ROLE", {"user_id": user_id, "token_id": token_id})
+        AuditService.log_action(db, user.id, "REVOKE_ROLE", {
+                                "user_id": user_id, "token_id": token_id})
 
         return {"success": True, "message": "Role revoked"}
     except ValueError as e:
@@ -231,11 +238,12 @@ async def update_current_user_info(
     user_db: tuple = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    from utils.funcs import sha256
+    import bcrypt
     user, _ = user_db
 
     if request.password:
-        user.password_hash = sha256(request.password)
+        user.password_hash = bcrypt.hashpw(
+            request.password.encode(), bcrypt.gensalt()).decode()
         db.commit()
 
     return {"success": True, "message": "User info updated"}

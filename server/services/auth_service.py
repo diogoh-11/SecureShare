@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 import os
 import time
-from utils.funcs import sha256
+import bcrypt
 from utils.jwt_utils import create_access_token, verify_token
 
 from models.models import (
@@ -10,24 +10,27 @@ from models.models import (
     Organization
 )
 
+
 class AuthService:
     def __init__(self, db: Session):
         self.db = db
-        self.rp_id =    os.getenv("RP_ID", "localhost")
-        self.rp_name =  os.getenv("RP_NAME", "SShare")
-        self.origin =   os.getenv("ORIGIN", "https://localhost:8443")
+        self.rp_id = os.getenv("RP_ID", "localhost")
+        self.rp_name = os.getenv("RP_NAME", "SShare")
+        self.origin = os.getenv("ORIGIN", "https://localhost:8443")
         self.challenge_timeout = 300
 
-    def _validate_code(self, code:str, username) -> tuple[User|None,RecoveryTokens|None]:
+    def _validate_code(self, code: str, username) -> tuple[User | None, RecoveryTokens | None]:
         """Validates if code is still valid for user"""
+        from utils.funcs import sha256
 
-        user:User|None = self.db.query(User).filter(User.username == username).first()
+        user: User | None = self.db.query(User).filter(
+            User.username == username).first()
         if not user:
             # user does not exist
-            return None,None
+            return None, None
 
         hashed_code = sha256(code)
-        token:RecoveryTokens|None = self.db.query(RecoveryTokens).filter(
+        token: RecoveryTokens | None = self.db.query(RecoveryTokens).filter(
             RecoveryTokens.user_id == user.id,
             RecoveryTokens.hashed_value == hashed_code,
             RecoveryTokens.is_used == False
@@ -35,15 +38,16 @@ class AuthService:
 
         return user, token
 
-    def activate(self, username:str, password:str, activation_code:str, public_key:str, private_key_blob:str):
+    def activate(self, username: str, password: str, activation_code: str, public_key: str, private_key_blob: str):
 
-        user,token = self._validate_code(activation_code,username)
+        user, token = self._validate_code(activation_code, username)
         if not token or not user:
             # check if token is valid
             return None
 
-        # store user password
-        user.password_hash = sha256(password)
+        # store user password with bcrypt
+        user.password_hash = bcrypt.hashpw(
+            password.encode(), bcrypt.gensalt()).decode()
         user.is_active = True
 
         # store cryptographic keys (required)
@@ -61,18 +65,20 @@ class AuthService:
             # Grant admin role to this user
             from services.organization_service import OrganizationService
             try:
-                OrganizationService.finalize_admin_role(self.db, user.id, organization.id)
-                print(f"[DEBUG] Granted admin role for organization {organization.id} to user {user.id}")
+                OrganizationService.finalize_admin_role(
+                    self.db, user.id, organization.id)
+                print(
+                    f"[DEBUG] Granted admin role for organization {organization.id} to user {user.id}")
             except Exception as e:
                 print(f"[ERROR] Failed to grant admin role: {e}")
                 # Don't fail registration if role assignment fails
                 pass
 
-
-        return {"success": True, "user_id":user.id, "username":username}
+        return {"success": True, "user_id": user.id, "username": username}
 
     def validate(self, username, password):
-        user: User|None = self.db.query(User).filter(User.username == username).first()
+        user: User | None = self.db.query(User).filter(
+            User.username == username).first()
         if not user:
             print(f"[ERROR] User not found: {username}")
             return None
@@ -81,7 +87,7 @@ class AuthService:
             print(f"[ERROR] User not activated: {username}")
             return None
 
-        if not user.password_hash == sha256(password):
+        if not bcrypt.checkpw(password.encode(), user.password_hash.encode()):
             print(f"Wrong user password for {username}")
             return None
 
@@ -112,7 +118,8 @@ class AuthService:
         if not payload:
             return None
 
-        user = self.db.query(User).filter(User.id == payload.get("sub")).first()
+        user = self.db.query(User).filter(
+            User.id == payload.get("sub")).first()
         if not user:
             return None
 
