@@ -81,10 +81,9 @@ class TransferService:
         original_filename: str,
         classification_level: str,
         departments: List[str],
-        file_key_b64: str,
         expiration_days: int = 7,
         transfer_mode: str = "user",
-        recipient_list: List[str] = None
+        recipients: dict[str,str] = None
     ):
         """
         Create transfer and automatically encrypt file key for recipients based on mode:
@@ -151,77 +150,23 @@ class TransferService:
                 "is_public": True
             }
 
-        # Expand recipients based on mode (for non-public transfers)
+
         recipient_ids = set()
 
-        if transfer_mode == "organization":
-            # All active users in organization
-            users = db.query(User).filter(
-                User.organization_id == sender.organization_id,
-                User.is_active == True
-            ).all()
-            recipient_ids = set(u.id for u in users)
-
-        elif transfer_mode == "department":
-            # All active users in specified departments
-            for dept_label in departments:
-                dept = db.query(Department).filter(Department.label == dept_label).first()
-                if dept:
-                    # Find users with clearance in this department
-                    users = db.execute(
-                        text("""
-                            SELECT DISTINCT u.id
-                            FROM users u
-                            JOIN clearance_tokens ct ON ct.user_id = u.id
-                            JOIN clearance_department cd ON cd.clearance_token_id = ct.id
-                            WHERE cd.department_id = :dept_id AND u.is_active = 1
-                        """),
-                        {"dept_id": dept.id}
-                    ).fetchall()
-                    recipient_ids.update(u[0] for u in users)
-
-        elif transfer_mode == "user":
-            # Specific users
-            if recipient_list:
-                recipient_ids = set(int(uid) for uid in recipient_list)
-
-        # Decrypt file key
-        file_key = base64.b64decode(file_key_b64)
-
         # Encrypt file key for each recipient
-        for user_id in recipient_ids:
+        for user_id, user_encrypted_key in recipients.items():
             user = db.query(User).filter(User.id == user_id).first()
             if not user or not user.public_key:
                 continue
 
-            # Load recipient's public key
-            try:
-                public_key = serialization.load_pem_public_key(
-                    user.public_key,
-                    backend=default_backend()
-                )
+            transfer_key = TransferKey(
+                transfer_id=transfer.id,
+                user_id=user_id,
+                encrypted_key=user_encrypted_key
+            )
+            recipient_ids.add(user_id)
+            db.add(transfer_key)
 
-                # Encrypt file key with recipient's public key
-                encrypted_key = public_key.encrypt(
-                    file_key,
-                    padding.OAEP(
-                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                        algorithm=hashes.SHA256(),
-                        label=None
-                    )
-                )
-
-                # Store encrypted key
-                transfer_key = TransferKey(
-                    transfer_id=transfer.id,
-                    user_id=user_id,
-                    encrypted_key=encrypted_key
-                )
-                db.add(transfer_key)
-
-            except Exception as e:
-                print(f"[WARNING] Could not encrypt key for user {user_id}: {e}")
-                continue
 
         db.commit()
         db.refresh(transfer)
@@ -239,12 +184,8 @@ class TransferService:
         Get transfers accessible to user (where user has an encrypted key)
         """
         # Get transfers where user has encrypted key (is a recipient)
-        transfers = db.query(Transfer, ClearanceLevel).join(
-            ClearanceLevel, Transfer.classification_level_id == ClearanceLevel.id
-        ).join(
-            TransferKey, Transfer.id == TransferKey.transfer_id
-        ).filter(
-            TransferKey.user_id == user_id
+        transfers = db.query(Transfer).filter(
+            Transfer.sender_id == user_id
         ).all()
 
         result = []
@@ -300,7 +241,8 @@ class TransferService:
             {"transfer_id": transfer_id}
         ).fetchall()
 
-        encrypted_key = encrypted_key_obj.encrypted_key.decode()
+        # Encode encrypted key as base64 for transmission (encrypted data is binary, not UTF-8 text)
+        encrypted_key = base64.b64encode(encrypted_key_obj.encrypted_key).decode('utf-8')
 
         return {
             "id": transfer_obj.id,

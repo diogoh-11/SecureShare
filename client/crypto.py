@@ -44,6 +44,27 @@ class KeyManager:
 
         return public_pem, private_der
 
+    def encrypt_with_public_key(self,file_key: bytes, public_key_pem: str) -> bytes:
+        """
+        Encrypts a symmetric file_key using an RSA public key (PEM format).
+        Returns encrypted bytes.
+        """
+
+        # Load the public key object from PEM text
+        public_key = serialization.load_pem_public_key(public_key_pem.encode())
+
+        # Encrypt using RSA-OAEP + SHA256
+        encrypted_key = public_key.encrypt(
+            file_key,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
+
+        return encrypted_key
+
     def create_encrypted_blob(self, private_key_der: bytes, password: str) -> str:
         """
         Encrypt private key with user password (AES-256 via Fernet)
