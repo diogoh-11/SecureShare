@@ -2,6 +2,7 @@ import requests
 import json
 from typing import Optional
 import urllib3
+import base64
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -123,16 +124,30 @@ class APIClient:
     def update_password(self, new_password: str):
         return self.post("/api/users/me/info", {"password": new_password})
 
-    def upload_transfer(self, encrypted_file_data: bytes, original_filename: str, classification_level: str, departments: list, file_key: bytes, expiration_days: int = 7, transfer_mode: str = "user", recipients: dict = None):
-        import base64
+
+    def _encode_recipients_dict(self,recipients: dict) -> dict:
+        """Convert {user_id: bytes} → {user_id: base64_string}."""
+        if not recipients:
+            return {}
+
+        encoded = {}
+        for user_id, value in recipients.items():
+            if isinstance(value, bytes):
+                encoded[user_id] = base64.b64encode(value).decode("utf-8")
+            else:
+                encoded[user_id] = value  # already string or something serializable
+
+        return encoded
+
+    def upload_transfer(self, encrypted_file_data: bytes, original_filename: str, classification_level: str, departments: list, expiration_days: int = 7, transfer_mode: str = "user", recipients: dict = None):
         files = {'file': (original_filename, encrypted_file_data)}
+        encoded_recipients = self._encode_recipients_dict(recipients)
         data = {
             'classification_level': classification_level,
             'departments': json.dumps(departments),
-            'file_key': base64.b64encode(file_key).decode('utf-8'),
             'expiration_days': str(expiration_days),
             'transfer_mode': transfer_mode,
-            'recipients': recipients
+            'recipients': json.dumps(encoded_recipients)
         }
         return self.post("/api/transfers", data=data, files=files)
 

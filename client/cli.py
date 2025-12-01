@@ -216,18 +216,14 @@ def cmd_transfer_upload(args):
     if args.public:
         transfer_mode = "public"
         print("Creating public transfer (anyone with link can download)...")
-        print("Key will be included in URL fragment (client-side decryption)")
     else:
         transfer_mode = "user"
         print(f"Uploading encrypted file (mode: {transfer_mode})...")
-        print("Server will encrypt keys for recipients based on mode.")
-
     response = client.upload_transfer(
         encrypted_file_data,
         original_filename,
         args.classification,
         departments,
-        file_key,  # Send the file key, server will encrypt for recipients (or not for public)
         args.expiration,
         transfer_mode,
         recipients_dict,

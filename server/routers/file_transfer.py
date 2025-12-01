@@ -8,6 +8,7 @@ from services.transfer_service import TransferService
 from services.audit_service import AuditService
 from datetime import datetime
 import json
+import base64
 import io
 
 router = APIRouter(tags=["File Transfers"])
@@ -42,6 +43,11 @@ async def create_transfer(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON in departments or recipients")
 
+    decoded_recipients = {}
+
+    for user_id, key_b64 in recipients_dict.items():
+        decoded_recipients[int(user_id)] = base64.b64decode(key_b64)
+
     if not classification_level:
         raise HTTPException(status_code=400, detail="classification_level required")
 
@@ -60,7 +66,7 @@ async def create_transfer(
         transfer = TransferService.create_transfer_with_key_encryption(
             db, user.id, file_content, file.filename,
             classification_level, dept_list, expiration_days,
-            transfer_mode, recipients_dict
+            transfer_mode, decoded_recipients
         )
 
         AuditService.log_action(

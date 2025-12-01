@@ -241,7 +241,8 @@ class TransferService:
             {"transfer_id": transfer_id}
         ).fetchall()
 
-        encrypted_key = encrypted_key_obj.encrypted_key.decode()
+        # Encode encrypted key as base64 for transmission (encrypted data is binary, not UTF-8 text)
+        encrypted_key = base64.b64encode(encrypted_key_obj.encrypted_key).decode('utf-8')
 
         return {
             "id": transfer_obj.id,
