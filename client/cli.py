@@ -163,35 +163,24 @@ def cmd_transfer_upload(args):
         sys.exit(1)
 
     file_data = None
-    original_filename = None
 
-    if len(files) == 1:
-        # Single file
-        print(f"Reading file: {files[0]}")
-        with open(files[0], "rb") as f:
-            file_data = f.read()
-        original_filename = os.path.basename(files[0])
-    else:
-        # Multiple files - create zip
-        print(f"Creating zip archive with {len(files)} files...")
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_zip:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_zip:
             zip_path = tmp_zip.name
 
-        try:
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for file_path in files:
-                    if not os.path.exists(file_path):
-                        print(f"Warning: File not found: {file_path}")
-                        continue
-                    print(f"  Adding: {os.path.basename(file_path)}")
-                    zf.write(file_path, os.path.basename(file_path))
+    try:
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for file_path in files:
+                if not os.path.exists(file_path):
+                    print(f"Warning: File not found: {file_path}")
+                    continue
+                print(f"  Adding: {os.path.basename(file_path)}")
+                zf.write(file_path, os.path.basename(file_path))
 
-            with open(zip_path, "rb") as f:
-                file_data = f.read()
-            original_filename = "transfer_archive.zip"
-        finally:
-            if os.path.exists(zip_path):
-                os.unlink(zip_path)
+        with open(zip_path, "rb") as f:
+            file_data = f.read()
+    finally:
+        if os.path.exists(zip_path):
+            os.unlink(zip_path)
 
     # Generate symmetric key and encrypt file
     print("Encrypting file...")
@@ -221,7 +210,6 @@ def cmd_transfer_upload(args):
         print(f"Uploading encrypted file (mode: {transfer_mode})...")
     response = client.upload_transfer(
         encrypted_file_data,
-        original_filename,
         args.classification,
         departments,
         args.expiration,
@@ -324,11 +312,19 @@ def cmd_transfer_download(args):
         print(f"Error: Failed to decrypt file: {e}")
         sys.exit(1)
 
+    # Determine output filename
+    if args.output:
+        output_filename = args.output
+    else:
+        # Use UUID from server as filename
+        file_uuid = transfer_info.get("file_uuid", f"transfer_{args.id}")
+        output_filename = file_uuid
+
     # Write decrypted file
-    with open(args.output, "wb") as f:
+    with open(output_filename, "wb") as f:
         f.write(decrypted_file_data)
 
-    print(f"File decrypted and saved to: {args.output}")
+    print(f"File decrypted and saved to: {output_filename}")
 
 def cmd_transfer_delete(args):
     client = get_client()
@@ -390,11 +386,19 @@ def cmd_transfer_download_public(args):
         print(f"Error: Failed to decrypt file: {e}")
         sys.exit(1)
 
+    # Determine output filename
+    if args.output:
+        output_filename = args.output
+    else:
+        # Extract token from URL for default filename
+        token = parsed.path.split('/')[-1]
+        output_filename = f"public_transfer_{token}"
+
     # Write decrypted file
-    with open(args.output, "wb") as f:
+    with open(output_filename, "wb") as f:
         f.write(decrypted_file_data)
 
-    print(f"File decrypted and saved to: {args.output}")
+    print(f"File decrypted and saved to: {output_filename}")
 
 def cmd_audit_log(args):
     client = get_client()
@@ -426,7 +430,8 @@ Examples:
   sshare role assign --user-id 2 --role "Security Officer"
   sshare clearance assign --user-id 2 --level "Top Secret" --departments "Engineering,Finance"
   sshare transfer upload --file document.pdf --classification "Secret" --departments "Engineering" --encrypted-keys "2:key123"
-  sshare transfer download --id 1 --output document.pdf
+  sshare transfer download --id 1
+  sshare transfer download --id 1 --output custom_name.pdf
   sshare audit log
         """
     )
@@ -529,7 +534,7 @@ Examples:
     transfer_get.set_defaults(func=cmd_transfer_get)
     transfer_download = transfer_sub.add_parser("download", help="Download transfer file")
     transfer_download.add_argument("--id", type=int, required=True, help="Transfer ID")
-    transfer_download.add_argument("--output", required=True, help="Output file path")
+    transfer_download.add_argument("--output", help="Output file path (default: uses server-generated UUID)")
     transfer_download.add_argument("--justification", help="Justification for trusted officer access")
     transfer_download.set_defaults(func=cmd_transfer_download)
     transfer_delete = transfer_sub.add_parser("delete", help="Delete transfer")
@@ -537,7 +542,7 @@ Examples:
     transfer_delete.set_defaults(func=cmd_transfer_delete)
     transfer_public = transfer_sub.add_parser("download-public", help="Download public transfer (no auth required)")
     transfer_public.add_argument("--url", required=True, help="Public URL with key in fragment (e.g., https://server/api/public/TOKEN#KEY)")
-    transfer_public.add_argument("--output", required=True, help="Output file path")
+    transfer_public.add_argument("--output", help="Output file path (default: uses public token from URL)")
     transfer_public.set_defaults(func=cmd_transfer_download_public)
 
     audit_parser = subparsers.add_parser("audit", help="Audit log management")

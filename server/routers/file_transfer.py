@@ -64,7 +64,7 @@ async def create_transfer(
 
     try:
         transfer = TransferService.create_transfer_with_key_encryption(
-            db, user.id, file_content, file.filename,
+            db, user.id, file_content,
             classification_level, dept_list, expiration_days,
             transfer_mode, decoded_recipients
         )
@@ -74,12 +74,18 @@ async def create_transfer(
             {"transfer_id": transfer["id"], "classification": classification_level, "mode": transfer_mode}
         )
 
-        return {
+        response = {
             "transfer_id": transfer["id"],
-            "original_filename": transfer["original_filename"],
             "classification_level": classification_level,
             "recipients_count": len(transfer.get("recipient_ids", []))
         }
+
+        # Include public access token for public transfers
+        if transfer.get("public_access_token"):
+            response["public_access_token"] = transfer["public_access_token"]
+            response["is_public"] = transfer.get("is_public", True)
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -158,13 +164,13 @@ async def download_public_transfer(
     if not result:
         raise HTTPException(status_code=404, detail="Transfer file not found")
 
-    file_content, filename = result
+    file_content, _ = result
 
     return StreamingResponse(
         io.BytesIO(file_content),
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            "Content-Disposition": 'attachment; filename="encrypted_file.enc"'
         }
     )
 
@@ -197,12 +203,12 @@ async def download_transfer(
     if not result:
         raise HTTPException(status_code=404, detail="Transfer file not found")
 
-    file_content, filename = result
+    file_content, _ = result
 
     AuditService.log_action(db, user.id, "DOWNLOAD_TRANSFER", {"transfer_id": transfer_id})
 
     return StreamingResponse(
         io.BytesIO(file_content),
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": 'attachment; filename="encrypted_file.enc"'}
     )

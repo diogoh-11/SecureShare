@@ -29,6 +29,11 @@ async def startup_event():
     db = SessionLocal()
     try:
         SeedService.seed_all(db)
+
+        # Clean up expired sessions on startup
+        from services.auth_service import AuthService
+        AuthService.cleanup_expired_sessions(db)
+        print("Session cleanup completed!")
     finally:
         db.close()
 

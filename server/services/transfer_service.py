@@ -6,6 +6,7 @@ from typing import List
 import os
 import shutil
 import base64
+import uuid
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
@@ -78,7 +79,6 @@ class TransferService:
         db: Session,
         sender_id: int,
         file_content: bytes,
-        original_filename: str,
         classification_level: str,
         departments: List[str],
         expiration_days: int = 7,
@@ -90,6 +90,8 @@ class TransferService:
         - organization: all active users in organization
         - department: all active users in specified departments
         - user: specific user IDs
+
+        Note: Server generates UUID-based filename for privacy - original filename is not stored
         """
         os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -105,20 +107,23 @@ class TransferService:
         if not clearance:
             raise ValueError(f"Classification level '{classification_level}' not found")
 
+        # Generate UUID-based filename for privacy
+        file_uuid = str(uuid.uuid4())
+
         # Create transfer
         transfer = Transfer(
             sender_id=sender_id,
             classification_level_id=clearance.id,
             expiration_time=datetime.utcnow() + timedelta(days=expiration_days),
             file_path="",
-            original_filename=original_filename,
+            original_filename=file_uuid,  # Store UUID instead of original filename
             created_at=datetime.utcnow()
         )
 
         db.add(transfer)
         db.flush()
 
-        file_path = os.path.join(UPLOAD_DIR, f"transfer_{transfer.id}_{original_filename}")
+        file_path = os.path.join(UPLOAD_DIR, f"{file_uuid}.enc")
         transfer.file_path = file_path
 
         with open(file_path, "wb") as f:
@@ -145,7 +150,6 @@ class TransferService:
 
             return {
                 "id": transfer.id,
-                "original_filename": transfer.original_filename,
                 "public_access_token": public_token,
                 "is_public": True
             }
@@ -173,7 +177,6 @@ class TransferService:
 
         return {
             "id": transfer.id,
-            "original_filename": transfer.original_filename,
             "recipient_ids": list(recipient_ids),
             "is_public": False
         }
@@ -199,7 +202,6 @@ class TransferService:
 
             result.append({
                 "id": transfer.id,
-                "original_filename": transfer.original_filename,
                 "classification_level": classification.label,
                 "departments": [d[0] for d in departments],
                 "created_at": transfer.created_at.isoformat(),
@@ -225,6 +227,7 @@ class TransferService:
         transfer_obj, classification = transfer
 
         # Check if user has encrypted key (is a recipient)
+        # TODO: check if trusted officer can bypass
         encrypted_key_obj = db.query(TransferKey).filter(
             TransferKey.transfer_id == transfer_id,
             TransferKey.user_id == user_id
@@ -246,7 +249,7 @@ class TransferService:
 
         return {
             "id": transfer_obj.id,
-            "original_filename": transfer_obj.original_filename,
+            "file_uuid": transfer_obj.original_filename,  # UUID for local filename
             "classification_level": classification.label,
             "departments": [d[0] for d in departments],
             "created_at": transfer_obj.created_at.isoformat(),

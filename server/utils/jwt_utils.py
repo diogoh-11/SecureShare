@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any
 
 JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_HOURS = 24
+JWT_EXPIRATION_HOURS = 1
 
 SIGNING_PRIVATE_KEY = None
 SIGNING_PUBLIC_KEY = None

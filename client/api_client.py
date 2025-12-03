@@ -139,8 +139,9 @@ class APIClient:
 
         return encoded
 
-    def upload_transfer(self, encrypted_file_data: bytes, original_filename: str, classification_level: str, departments: list, expiration_days: int = 7, transfer_mode: str = "user", recipients: dict = None):
-        files = {'file': (original_filename, encrypted_file_data)}
+    def upload_transfer(self, encrypted_file_data: bytes, classification_level: str, departments: list, expiration_days: int = 7, transfer_mode: str = "user", recipients: dict = None):
+        # Send file without filename for privacy - server generates UUID
+        files = {'file': ('file', encrypted_file_data)}
         encoded_recipients = self._encode_recipients_dict(recipients)
         data = {
             'classification_level': classification_level,

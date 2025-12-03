@@ -51,19 +51,29 @@ def require_role(required_roles: list[str]):
         authorization: str = Header(...),
         db: Session = Depends(get_db)
     ):
-        from models.models import User
-        from utils.jwt_utils import verify_token
+        from models.models import User, Session as SessionModel
 
         token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
 
-        payload = verify_token(token)
-        if not payload:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        # Find session in database
+        session = db.query(SessionModel).filter(
+            SessionModel.session_token == token
+        ).first()
 
-        user_id = payload.get("sub")
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
+        if not session:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+        # Check if session is expired
+        current_time = time.time()
+        if session.expires_at < current_time:
+            db.delete(session)
+            db.commit()
+            raise HTTPException(status_code=401, detail="Session expired")
+
+        # Get user
+        user = db.query(User).filter(User.id == session.user_id).first()
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="User not found or inactive")
 
         user_roles = get_active_user_roles(db, user.id)
 
@@ -130,17 +140,29 @@ def get_active_user_roles(db: Session, user_id: int) -> set[str]:
     return response
 
 def get_current_user(authorization: str = Header(...), db: Session = Depends(get_db)) -> Tuple[User, Session]:
-    from utils.jwt_utils import verify_token
+    from models.models import Session as SessionModel
 
     token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
 
-    payload = verify_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    # Find session in database
+    session = db.query(SessionModel).filter(
+        SessionModel.session_token == token
+    ).first()
 
-    user_id = payload.get("sub")
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+    # Check if session is expired
+    current_time = time.time()
+    if session.expires_at < current_time:
+        # Session expired, delete it
+        db.delete(session)
+        db.commit()
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    # Get user
+    user = db.query(User).filter(User.id == session.user_id).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
 
     return user, db
