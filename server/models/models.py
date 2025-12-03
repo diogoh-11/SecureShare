@@ -131,7 +131,7 @@ class RoleToken(Base):
     __tablename__ = 'role_tokens'
 
     id = Column(Integer, primary_key=True, index=True)
-    role_id = Column(String, ForeignKey('roles.id') ,nullable=False)
+    role_id = Column(Integer, ForeignKey('roles.id') ,nullable=False)
     signature = Column(LargeBinary, nullable=False)
     expires_at = Column(DateTime)
     target_id = Column(Integer, ForeignKey('users.id'), nullable=False)

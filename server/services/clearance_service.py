@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 import json
 from enums import RoleEnum
+
+
 class ClearanceService:
     @staticmethod
     def create_clearance_token(
@@ -30,7 +32,8 @@ class ClearanceService:
 
         department_objs = []
         for dept_label in departments:
-            dept = db.query(Department).filter(Department.label == dept_label).first()
+            dept = db.query(Department).filter(
+                Department.label == dept_label).first()
             if dept:
                 department_objs.append(dept)
 
@@ -49,7 +52,8 @@ class ClearanceService:
 
         for dept in department_objs:
             db.execute(
-                text("INSERT INTO clearance_department (clearance_token_id, department_id) VALUES (:token_id, :dept_id)"),
+                text(
+                    "INSERT INTO clearance_department (clearance_token_id, department_id) VALUES (:token_id, :dept_id)"),
                 {"token_id": clearance_token.id, "dept_id": dept.id}
             )
 
@@ -127,9 +131,11 @@ class ClearanceService:
         db.add(revocation)
         db.commit()
 
-        print(f"[INFO] Revoked clearance token {clearance_token_id} for user {clearance_token.user_id}")
+        print(
+            f"[INFO] Revoked clearance token {clearance_token_id} for user {clearance_token.user_id}")
 
         return revocation
+
 
 class RoleService:
     @staticmethod
@@ -140,7 +146,8 @@ class RoleService:
         role_label: str,
         expires_in_days: Optional[int] = None
     ):
-        role:Role|None = db.query(Role).filter(Role.label == role_label).first()
+        role: Role | None = db.query(Role).filter(
+            Role.label == role_label).first()
         if not role:
             raise ValueError(f"Role '{role_label}' not found")
 
@@ -157,7 +164,9 @@ class RoleService:
             RoleToken.target_id == target_id
         ).all()
 
-        ADMIN_ROLE:Role = db.query(Role).filter(Role.label == RoleEnum.ADMINISTRATOR).first()
+        ADMIN_ROLE: Role = db.query(Role).filter(
+            Role.label == RoleEnum.ADMINISTRATOR.value).first()
+        
 
         for existing_role in existing_roles:
             # Check if not already revoked
@@ -176,7 +185,8 @@ class RoleService:
                     revoker_id=issuer_id
                 )
                 db.add(revocation)
-                print(f"[INFO] Auto-revoked previous role token {existing_role.id} for user {target_id}")
+                print(
+                    f"[INFO] Auto-revoked previous role token {existing_role.id} for user {target_id}")
 
         # Now assign the new role
         expiration = None
@@ -209,7 +219,8 @@ class RoleService:
 
     @staticmethod
     def revoke_role(db: Session, revoker_id: int, role_token_id: int):
-        role_token = db.query(RoleToken).filter(RoleToken.id == role_token_id).first()
+        role_token = db.query(RoleToken).filter(
+            RoleToken.id == role_token_id).first()
         if not role_token:
             raise ValueError("Role token not found")
 
