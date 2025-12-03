@@ -5,7 +5,7 @@ from utils.jwt_utils import sign_data, verify_signature
 from datetime import datetime, timedelta
 from typing import List, Optional
 import json
-
+from enums import RoleEnum
 class ClearanceService:
     @staticmethod
     def create_clearance_token(
@@ -140,9 +140,12 @@ class RoleService:
         role_label: str,
         expires_in_days: Optional[int] = None
     ):
-        role = db.query(Role).filter(Role.label == role_label).first()
+        role:Role|None = db.query(Role).filter(Role.label == role_label).first()
         if not role:
             raise ValueError(f"Role '{role_label}' not found")
+
+        if role.label == RoleEnum.ADMINISTRATOR:
+            raise ValueError(f"Can't assign {role.label}")
 
         target_user = db.query(User).filter(User.id == target_id).first()
         if not target_user:
@@ -154,6 +157,8 @@ class RoleService:
             RoleToken.target_id == target_id
         ).all()
 
+        ADMIN_ROLE:Role = db.query(Role).filter(Role.label == RoleEnum.ADMINISTRATOR).first()
+
         for existing_role in existing_roles:
             # Check if not already revoked
             existing_revocation = db.query(RoleRevocation).filter(
@@ -161,6 +166,10 @@ class RoleService:
             ).first()
 
             if not existing_revocation:
+
+                if existing_role.role_id == ADMIN_ROLE.id:
+                    raise ValueError("Target user is a ADMINISTRATOR")
+
                 # Revoke the old role
                 revocation = RoleRevocation(
                     role_token_id=existing_role.id,
