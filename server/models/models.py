@@ -145,6 +145,14 @@ class RoleRevocation(Base):
     revoker_id = Column(Integer, ForeignKey('users.id'), nullable=False)
 
 
+class ClearanceRevocation(Base):
+    __tablename__ = 'clearance_revocations'
+
+    clearance_token_id = Column(Integer, ForeignKey('clearance_tokens.id'), primary_key=True)
+    revoker_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    revoked_at = Column(DateTime, default=lambda: datetime.now())
+
+
 class ClearanceToken(Base):
     __tablename__ = 'clearance_tokens'
 

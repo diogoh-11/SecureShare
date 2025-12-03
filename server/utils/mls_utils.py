@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from models.models import ClearanceToken, ClearanceLevel, Department, Transfer, User
+from models.models import ClearanceToken, ClearanceLevel, Department, Transfer, User, ClearanceRevocation
 from typing import List, Set
 from datetime import datetime
 from enums import ClearanceLevelEnum
@@ -33,6 +33,15 @@ def get_user_max_clearance(db: Session, user_id: int) -> tuple[str, Set[str]]:
     all_departments = set()
 
     for clearance_token, clearance_level in clearances:
+        # CRITICAL: Check if clearance is revoked
+        is_revoked = db.query(ClearanceRevocation).filter(
+            ClearanceRevocation.clearance_token_id == clearance_token.id
+        ).first() is not None
+
+        if is_revoked:
+            # Skip revoked clearances
+            continue
+
         level_value = get_clearance_level_value(clearance_level.label)
         if level_value > get_clearance_level_value(max_level):
             max_level = clearance_level.label

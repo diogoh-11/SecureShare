@@ -149,22 +149,27 @@ async def add_user_clearance(
 
 
 @router.put("/{user_id}/revoke/{token_id}")
-async def revoke_token(
+async def revoke_clearance(
     user_id: int,
     token_id: int,
     user_db: tuple = Depends(get_current_user),
     db: Session = Depends(require_role(["Security Officer"]))
 ):
-    from services.clearance_service import RoleService
+    """
+    Revoke a clearance token.
+    Note: To revoke a role, use PUT /users/{user_id}/role with role="Standard User"
+    """
+    from services.clearance_service import ClearanceService
     from services.audit_service import AuditService
     user, _ = user_db
 
     try:
-        RoleService.revoke_role(db, user.id, token_id)
-        AuditService.log_action(db, user.id, "REVOKE_ROLE", {
-                                "user_id": user_id, "token_id": token_id})
+        ClearanceService.revoke_clearance(db, user.id, token_id)
+        AuditService.log_action(db, user.id, "REVOKE_CLEARANCE", {
+            "user_id": user_id, "clearance_token_id": token_id
+        })
 
-        return {"success": True, "message": "Role revoked"}
+        return {"success": True, "message": "Clearance revoked"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

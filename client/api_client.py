@@ -106,7 +106,7 @@ class APIClient:
     def get_clearance(self, user_id: int):
         return self.get(f"/api/users/{user_id}/clearance")
 
-    def revoke_role(self, user_id: int, token_id: int):
+    def revoke_clearance(self, user_id: int, token_id: int):
         return self.put(f"/api/users/{user_id}/revoke/{token_id}")
 
     def get_user_key(self, user_id: int):

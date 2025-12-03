@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from models.models import ClearanceToken, Department, ClearanceLevel, User, RoleToken, Role, RoleRevocation
+from models.models import ClearanceToken, Department, ClearanceLevel, User, RoleToken, Role, RoleRevocation, ClearanceRevocation
 from utils.jwt_utils import sign_data, verify_signature
 from datetime import datetime, timedelta
 from typing import List, Optional
@@ -62,12 +62,23 @@ class ClearanceService:
         clearances = db.query(ClearanceToken, ClearanceLevel).join(
             ClearanceLevel, ClearanceToken.clearance_level_id == ClearanceLevel.id
         ).filter(
-            ClearanceToken.user_id == user_id,
-            (ClearanceToken.expiration_time > datetime.utcnow()) | (ClearanceToken.expiration_time == None)
+            ClearanceToken.user_id == user_id
         ).all()
 
         result = []
         for clearance_token, clearance_level in clearances:
+            # Check if revoked
+            is_revoked = db.query(ClearanceRevocation).filter(
+                ClearanceRevocation.clearance_token_id == clearance_token.id
+            ).first() is not None
+
+            # Check if expired
+            is_expired = False
+            if clearance_token.expiration_time:
+                is_expired = clearance_token.expiration_time < datetime.utcnow()
+
+            is_active = not is_revoked and not is_expired
+
             departments = db.execute(
                 text("SELECT d.label FROM departments d "
                      "JOIN clearance_department cd ON d.id = cd.department_id "
@@ -81,10 +92,44 @@ class ClearanceService:
                 "departments": [d[0] for d in departments],
                 "is_organizational": clearance_token.is_organizational,
                 "expires_at": clearance_token.expiration_time.isoformat() if clearance_token.expiration_time else None,
-                "issuer_id": clearance_token.issuer_id
+                "issuer_id": clearance_token.issuer_id,
+                "is_active": is_active,
+                "is_revoked": is_revoked,
+                "is_expired": is_expired
             })
 
         return result
+
+    @staticmethod
+    def revoke_clearance(db: Session, revoker_id: int, clearance_token_id: int):
+        """Revoke a clearance token"""
+        clearance_token = db.query(ClearanceToken).filter(
+            ClearanceToken.id == clearance_token_id
+        ).first()
+
+        if not clearance_token:
+            raise ValueError("Clearance token not found")
+
+        # Check if already revoked
+        existing_revocation = db.query(ClearanceRevocation).filter(
+            ClearanceRevocation.clearance_token_id == clearance_token_id
+        ).first()
+
+        if existing_revocation:
+            raise ValueError("Clearance token already revoked")
+
+        # Create revocation record
+        revocation = ClearanceRevocation(
+            clearance_token_id=clearance_token_id,
+            revoker_id=revoker_id
+        )
+
+        db.add(revocation)
+        db.commit()
+
+        print(f"[INFO] Revoked clearance token {clearance_token_id} for user {clearance_token.user_id}")
+
+        return revocation
 
 class RoleService:
     @staticmethod
@@ -103,6 +148,28 @@ class RoleService:
         if not target_user:
             raise ValueError("Target user not found")
 
+        # IMPORTANT: User can only have ONE role at a time
+        # Revoke all existing active roles before assigning new one
+        existing_roles = db.query(RoleToken).filter(
+            RoleToken.target_id == target_id
+        ).all()
+
+        for existing_role in existing_roles:
+            # Check if not already revoked
+            existing_revocation = db.query(RoleRevocation).filter(
+                RoleRevocation.role_token_id == existing_role.id
+            ).first()
+
+            if not existing_revocation:
+                # Revoke the old role
+                revocation = RoleRevocation(
+                    role_token_id=existing_role.id,
+                    revoker_id=issuer_id
+                )
+                db.add(revocation)
+                print(f"[INFO] Auto-revoked previous role token {existing_role.id} for user {target_id}")
+
+        # Now assign the new role
         expiration = None
         if expires_in_days:
             expiration = datetime.utcnow() + timedelta(days=expires_in_days)
@@ -126,6 +193,8 @@ class RoleService:
 
         db.add(role_token)
         db.commit()
+
+        print(f"[INFO] Assigned role '{role_label}' to user {target_id}")
 
         return role_token
 

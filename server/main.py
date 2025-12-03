@@ -5,7 +5,7 @@ from database import engine, Base, SessionLocal
 from models.models import (
     Organization, User, Department, ClearanceLevel,
     Transfer, TransferKey, Role, RoleToken, RoleRevocation,
-    ClearanceToken, Session, RecoveryTokens
+    ClearanceToken, ClearanceRevocation, Session, RecoveryTokens
 )
 
 from routers import api

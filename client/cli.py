@@ -127,12 +127,7 @@ def cmd_user_update_password(args):
 def cmd_role_assign(args):
     client = get_client()
     response = client.assign_role(args.user_id, args.role)
-    handle_response(response, f"Role '{args.role}' assigned to user {args.user_id}")
-
-def cmd_role_revoke(args):
-    client = get_client()
-    response = client.revoke_role(args.user_id, args.token_id)
-    handle_response(response, f"Role token {args.token_id} revoked")
+    handle_response(response, f"Role '{args.role}' assigned to user {args.user_id} (previous role auto-revoked)")
 
 def cmd_clearance_assign(args):
     client = get_client()
@@ -144,6 +139,11 @@ def cmd_clearance_get(args):
     client = get_client()
     response = client.get_clearance(args.user_id)
     handle_response(response)
+
+def cmd_clearance_revoke(args):
+    client = get_client()
+    response = client.revoke_clearance(args.user_id, args.token_id)
+    handle_response(response, f"Clearance token {args.token_id} revoked for user {args.user_id}")
 
 def cmd_transfer_upload(args):
     client = get_client()
@@ -428,7 +428,9 @@ Examples:
   sshare dept create --name Engineering
   sshare user create --username alice
   sshare role assign --user-id 2 --role "Security Officer"
+  sshare role assign --user-id 2 --role "Standard User"  # To revoke elevated role
   sshare clearance assign --user-id 2 --level "Top Secret" --departments "Engineering,Finance"
+  sshare clearance revoke --user-id 2 --token-id 5  # Revoke clearance
   sshare transfer upload --file document.pdf --classification "Secret" --departments "Engineering" --encrypted-keys "2:key123"
   sshare transfer download --id 1
   sshare transfer download --id 1 --output custom_name.pdf
@@ -495,14 +497,10 @@ Examples:
 
     role_parser = subparsers.add_parser("role", help="Role management")
     role_sub = role_parser.add_subparsers(dest="action")
-    role_assign = role_sub.add_parser("assign", help="Assign role to user")
+    role_assign = role_sub.add_parser("assign", help="Assign role to user (replaces previous role)")
     role_assign.add_argument("--user-id", type=int, required=True, help="User ID")
     role_assign.add_argument("--role", required=True, choices=["Administrator", "Security Officer", "Trusted Officer", "Standard User", "Auditor"], help="Role name")
     role_assign.set_defaults(func=cmd_role_assign)
-    role_revoke = role_sub.add_parser("revoke", help="Revoke role token")
-    role_revoke.add_argument("--user-id", type=int, required=True, help="User ID")
-    role_revoke.add_argument("--token-id", type=int, required=True, help="Role token ID")
-    role_revoke.set_defaults(func=cmd_role_revoke)
 
     clearance_parser = subparsers.add_parser("clearance", help="Clearance management")
     clearance_sub = clearance_parser.add_subparsers(dest="action")
@@ -515,6 +513,10 @@ Examples:
     clearance_get = clearance_sub.add_parser("get", help="Get user clearances")
     clearance_get.add_argument("--user-id", type=int, required=True, help="User ID")
     clearance_get.set_defaults(func=cmd_clearance_get)
+    clearance_revoke = clearance_sub.add_parser("revoke", help="Revoke clearance token")
+    clearance_revoke.add_argument("--user-id", type=int, required=True, help="User ID")
+    clearance_revoke.add_argument("--token-id", type=int, required=True, help="Clearance token ID")
+    clearance_revoke.set_defaults(func=cmd_clearance_revoke)
 
     transfer_parser = subparsers.add_parser("transfer", help="File transfer management")
     transfer_sub = transfer_parser.add_subparsers(dest="action")
