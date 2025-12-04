@@ -112,6 +112,8 @@ class Transfer(Base):
     original_filename = Column(String, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now())
     public_access_token = Column(String, nullable=True, unique=True)
+    strategy = Column(String, nullable=False)
+    nonce = Column(String, nullable=False)
 
 class TransferKey(Base):
     __tablename__ = 'transfer_keys'

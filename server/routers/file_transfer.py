@@ -32,6 +32,8 @@ async def create_transfer(
     expiration_days: int = Form(7),
     transfer_mode: str = Form("user"),
     recipients: str = Form("[]"),
+    strategy : str = Form(...),
+    nonce : str = Form(...),
     user_db: tuple = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -61,11 +63,17 @@ async def create_transfer(
             )
 
     file_content = await file.read()
+    
+    if strategy != "GCM" and strategy != "XChaCha":
+        raise HTTPException(
+                status_code=403,
+                detail="Invalid Strategy"
+            )
 
     try:
         transfer = TransferService.create_transfer_with_key_encryption(
             db, user.id, file_content,
-            classification_level, dept_list, expiration_days,
+            classification_level, dept_list, strategy, nonce, expiration_days,
             transfer_mode, decoded_recipients
         )
 
@@ -164,14 +172,12 @@ async def download_public_transfer(
     if not result:
         raise HTTPException(status_code=404, detail="Transfer file not found")
 
-    file_content, _ = result
+    file_content, file_name, strategy, nonce = result
 
     return StreamingResponse(
         io.BytesIO(file_content),
         media_type="application/octet-stream",
-        headers={
-            "Content-Disposition": 'attachment; filename="encrypted_file.enc"'
-        }
+        headers={"Content-Disposition": 'attachment; filename="encrypted_file.enc"', "strategy" : strategy, "nonce" : nonce}
     )
 
 
@@ -203,12 +209,12 @@ async def download_transfer(
     if not result:
         raise HTTPException(status_code=404, detail="Transfer file not found")
 
-    file_content, _ = result
+    file_content, file_name, strategy, nonce = result
 
     AuditService.log_action(db, user.id, "DOWNLOAD_TRANSFER", {"transfer_id": transfer_id})
 
     return StreamingResponse(
         io.BytesIO(file_content),
         media_type="application/octet-stream",
-        headers={"Content-Disposition": 'attachment; filename="encrypted_file.enc"'}
+        headers={"Content-Disposition": 'attachment; filename="encrypted_file.enc"', "strategy" : strategy, "nonce" : nonce}
     )

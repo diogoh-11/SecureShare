@@ -23,6 +23,8 @@ class TransferService:
         classification_level: str,
         departments: List[str],
         encrypted_keys: dict,
+        strategy : str,
+        nonce : str,
         expiration_days: int = 7
     ):
         os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -36,11 +38,13 @@ class TransferService:
 
         transfer = Transfer(
             sender_id=sender_id,
+            nonce=nonce,
+            strategy=strategy,
             classification_level_id=clearance.id,
             expiration_time=datetime.utcnow() + timedelta(days=expiration_days),
             file_path="",
             original_filename=original_filename,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         )
 
         db.add(transfer)
@@ -81,6 +85,8 @@ class TransferService:
         file_content: bytes,
         classification_level: str,
         departments: List[str],
+        strategy : str,
+        nonce : str,
         expiration_days: int = 7,
         transfer_mode: str = "user",
         recipients: dict[str,str] = None
@@ -117,7 +123,9 @@ class TransferService:
             expiration_time=datetime.utcnow() + timedelta(days=expiration_days),
             file_path="",
             original_filename=file_uuid,  # Store UUID instead of original filename
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
+            strategy = strategy,
+            nonce = nonce
         )
 
         db.add(transfer)
@@ -267,7 +275,7 @@ class TransferService:
         with open(transfer.file_path, "rb") as f:
             content = f.read()
 
-        return content, transfer.original_filename
+        return content, transfer.original_filename, transfer.strategy, transfer.nonce
 
     @staticmethod
     def delete_transfer(db: Session, transfer_id: int, user_id: int):
