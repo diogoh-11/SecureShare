@@ -1,9 +1,10 @@
+from ctypes import ArgumentError
 import requests
 import json
 from typing import Optional
 import urllib3
 import base64
-
+from crypto import KeyManager 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class APIClient:
@@ -139,18 +140,29 @@ class APIClient:
 
         return encoded
 
-    def upload_transfer(self, encrypted_file_data: bytes, classification_level: str, departments: list, expiration_days: int = 7, transfer_mode: str = "user", recipients: dict = None):
+    def upload_transfer(self, file_data: bytes, file_key : bytes, nonce : bytes, strategy : str, classification_level: str, departments: list, expiration_days: int = 7, transfer_mode: str = "user" ,recipients: dict = None):
         # Send file without filename for privacy - server generates UUID
-        files = {'file': ('file', encrypted_file_data)}
+        km = KeyManager()
         encoded_recipients = self._encode_recipients_dict(recipients)
-        data = {
+        metadata = {
             'classification_level': classification_level,
             'departments': json.dumps(departments),
             'expiration_days': str(expiration_days),
             'transfer_mode': transfer_mode,
-            'recipients': json.dumps(encoded_recipients)
+            'recipients': json.dumps(encoded_recipients),
+            'nonce' : base64.b64encode(nonce).decode("ascii"),
+            'strategy' : strategy
         }
-        return self.post("/api/transfers", data=data, files=files)
+        
+        if strategy == "GCM":
+            encrypted_file_data = km.encrypt_file_gcm(file_data, file_key, nonce, metadata)
+        elif strategy == "XChaCha":
+            encrypted_file_data = km.encrypt_file_xshasha(file_data, file_key, nonce, metadata)
+        else:
+            raise ValueError(f"Strategy {strategy} is not a valid strategy for encription")
+        
+        files = {'file': ('file', encrypted_file_data)}
+        return self.post("/api/transfers", data=metadata, files=files)
 
     def list_transfers(self):
         return self.get("/api/transfers")

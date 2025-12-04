@@ -156,6 +156,12 @@ def cmd_transfer_upload(args):
         departments = args.departments.split(",") if args.departments else []
         recipients = args.recipients.split(",") if args.recipients else []
 
+    strategy_encryption = args.strategy
+    if strategy_encryption != "XChaCha" and strategy_encryption != "GCM":
+        print(f"Error: Strategy {strategy_encryption} is invalid")
+        print("The strategies available are XChaCha and GCM")
+        sys.exit(1)
+
     # Handle multiple files - create zip if needed
     files = args.files.split(",") if args.files else []
     if not files:
@@ -186,11 +192,9 @@ def cmd_transfer_upload(args):
     print("Encrypting file...")
     km = KeyManager()
     file_key = km.generate_file_key()
-    encrypted_file_data = km.encrypt_file(file_data, file_key)
+    nonce = km.generate_nonce()
 
     recipients_dict = {}
-
-
     for r in recipients:
         res = client.get_user_key(r)
         key = res.json().get("public_key",None)
@@ -209,7 +213,10 @@ def cmd_transfer_upload(args):
         transfer_mode = "user"
         print(f"Uploading encrypted file (mode: {transfer_mode})...")
     response = client.upload_transfer(
-        encrypted_file_data,
+        file_data,
+        file_key,
+        nonce,
+        strategy_encryption,
         args.classification,
         departments,
         args.expiration,
@@ -307,7 +314,7 @@ def cmd_transfer_download(args):
     # Decrypt file
     print("Decrypting file...")
     try:
-        decrypted_file_data = km.decrypt_file(encrypted_file_data, file_key)
+        decrypted_file_data = km.decrypt_file_fernet(encrypted_file_data, file_key)
     except Exception as e:
         print(f"Error: Failed to decrypt file: {e}")
         sys.exit(1)
@@ -381,7 +388,7 @@ def cmd_transfer_download_public(args):
     print("Decrypting file...")
     km = KeyManager()
     try:
-        decrypted_file_data = km.decrypt_file(encrypted_file_data, file_key)
+        decrypted_file_data = km.decrypt_file_fernet(encrypted_file_data, file_key)
     except Exception as e:
         print(f"Error: Failed to decrypt file: {e}")
         sys.exit(1)
@@ -527,6 +534,7 @@ Examples:
     transfer_upload.add_argument("--recipients", help="Comma-separated user IDs (specific users)")
     transfer_upload.add_argument("--public", action="store_true", help="Create public transfer (anyone with link can access)")
     transfer_upload.add_argument("--expiration", type=int, default=7, help="Expiration days (default: 7)")
+    transfer_upload.add_argument("--strategy", type=str, default="GCM", help="Cypher used on encryption (either GCM or XChaCha) (default: GCM)")
     transfer_upload.set_defaults(func=cmd_transfer_upload)
     transfer_list = transfer_sub.add_parser("list", help="List transfers")
     transfer_list.set_defaults(func=cmd_transfer_list)
