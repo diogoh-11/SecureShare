@@ -5,19 +5,77 @@ import json
 import getpass
 import base64
 import os
-from webbrowser import get
 import zipfile
 import tempfile
 from api_client import APIClient
 from config import save_token, load_token, clear_token, save_config, get_config
 from crypto import KeyManager
 
+# Tab completion support
+try:
+    import argcomplete
+    ARGCOMPLETE_AVAILABLE = True
+except ImportError:
+    ARGCOMPLETE_AVAILABLE = False
+
 DEFAULT_SERVER = "https://localhost:8443"
 
-def get_client():
+# Role name mapping: short names to full names
+ROLE_ALIASES = {
+    "ad": "Administrator",
+    "so": "Security Officer",
+    "to": "Trusted Officer",
+    "au": "Auditor",
+    "su": "Standard User"
+}
+
+def normalize_role_name(role):
+    """Convert short role name to full name, or return as-is if already full."""
+    if role is None:
+        return None
+    # If it's a short name, convert it
+    if role.lower() in ROLE_ALIASES:
+        return ROLE_ALIASES[role.lower()]
+    # Otherwise return as-is (assume it's already a full name)
+    return role
+
+def get_client(acting_role=None, acting_clearance=None):
+    """
+    Get API client with acting role and clearance.
+
+    If acting_role is provided:
+        - Save it to config for future use
+        - Use it for this request
+    If acting_role is None:
+        - Load saved role from config (if any)
+        - Use it for this request
+
+    If acting_clearance is provided:
+        - Save it to config for future use
+        - Use it for this request
+    If acting_clearance is None:
+        - Load saved clearance from config (if any)
+        - Use it for this request
+    """
     server = get_config("server", DEFAULT_SERVER)
     token = load_token()
-    return APIClient(server, token)
+
+    # If role specified, normalize and save it for future use
+    if acting_role:
+        acting_role = normalize_role_name(acting_role)
+        save_config("acting_role", acting_role)
+    else:
+        # Load saved role from config
+        acting_role = get_config("acting_role", None)
+
+    # If clearance specified, save it for future use
+    if acting_clearance is not None:
+        save_config("acting_clearance", acting_clearance)
+    else:
+        # Load saved clearance from config
+        acting_clearance = get_config("acting_clearance", None)
+
+    return APIClient(server, token, acting_role, acting_clearance)
 
 def handle_response(response, success_message=None):
     try:
@@ -41,14 +99,44 @@ def cmd_config(args):
     if args.action == "set-server":
         save_config("server", args.url)
         print(f"Server set to: {args.url}")
+    elif args.action == "clear-role":
+        from config import load_config
+        config = load_config()
+        if "acting_role" in config:
+            config.pop("acting_role")
+            from pathlib import Path
+            import json
+            CONFIG_FILE = Path.home() / ".sshare" / "config.json"
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(config, f, indent=2)
+            print("Saved acting role cleared")
+        else:
+            print("No saved acting role to clear")
+    elif args.action == "clear-clearance":
+        from config import load_config
+        config = load_config()
+        if "acting_clearance" in config:
+            config.pop("acting_clearance")
+            from pathlib import Path
+            import json
+            CONFIG_FILE = Path.home() / ".sshare" / "config.json"
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(config, f, indent=2)
+            print("Saved acting clearance cleared")
+        else:
+            print("No saved acting clearance to clear")
     elif args.action == "show":
         server = get_config("server", DEFAULT_SERVER)
         token = load_token()
+        acting_role = get_config("acting_role", None)
+        acting_clearance = get_config("acting_clearance", None)
         print(f"Server: {server}")
         print(f"Token: {'Set' if token else 'Not set'}")
+        print(f"Acting Role: {acting_role if acting_role else 'Not set (defaults to Standard User)'}")
+        print(f"Acting Clearance: {acting_clearance if acting_clearance else 'Not set (no clearance)'}")
 
 def cmd_org_create(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.create_organization(args.name, args.admin)
     data = handle_response(response, "Organization created successfully")
     if data and "activation_code" in data:
@@ -63,12 +151,12 @@ def cmd_activate(args):
     encrypted_blob = km.create_encrypted_blob(private_der, args.password)
 
     print("Activating account...")
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.activate(args.username, args.code, args.password, public_pem, encrypted_blob)
     handle_response(response, "Account activated successfully\nYour encrypted private key has been stored on the server.")
 
 def cmd_login(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.login(args.username, args.password)
     data = handle_response(response, "Login successful")
     if data and "access_token" in data:
@@ -76,85 +164,91 @@ def cmd_login(args):
         print("\nToken saved. You are now authenticated.")
 
 def cmd_logout(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.logout()
     handle_response(response)
     clear_token()
     print("Logged out. Token cleared.")
 
 def cmd_dept_create(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.create_department(args.name)
     handle_response(response, "Department created successfully")
 
 def cmd_dept_list(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.list_departments()
     handle_response(response)
 
 def cmd_dept_delete(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.delete_department(args.id)
     handle_response(response, f"Department {args.id} deleted")
 
 def cmd_user_create(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.create_user(args.username)
     data = handle_response(response, "User created successfully")
     if data and "activation_code" in data:
         print(f"\nIMPORTANT: Save this activation code: {data['activation_code']}")
 
 def cmd_user_list(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.list_users()
     handle_response(response)
 
 def cmd_user_delete(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.delete_user(args.id)
     handle_response(response, f"User {args.id} deleted")
 
 def cmd_user_info(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.get_user_info()
     handle_response(response)
 
 def cmd_user_update_password(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.update_password(args.password)
     handle_response(response, "Password updated successfully")
 
 def cmd_role_assign(args):
-    client = get_client()
-    response = client.assign_role(args.user_id, args.role)
-    handle_response(response, f"Role '{args.role}' assigned to user {args.user_id} (previous role auto-revoked)")
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
+    # Normalize role name (convert short names to full names)
+    role = normalize_role_name(args.role)
+    response = client.assign_role(args.user_id, role)
+    handle_response(response, f"Role '{role}' assigned to user {args.user_id}")
+
+def cmd_role_revoke(args):
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
+    response = client.revoke_role(args.token_id)
+    handle_response(response, f"Role token {args.token_id} revoked")
 
 def cmd_clearance_assign(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     departments = args.departments.split(",") if args.departments else []
     response = client.assign_clearance(args.user_id, args.level, departments, args.expires_at)
     handle_response(response, f"Clearance assigned to user {args.user_id}")
 
 def cmd_clearance_get(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.get_clearance(args.user_id)
     handle_response(response)
 
 def cmd_clearance_revoke(args):
-    client = get_client()
-    response = client.revoke_clearance(args.user_id, args.token_id)
-    handle_response(response, f"Clearance token {args.token_id} revoked for user {args.user_id}")
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
+    response = client.revoke_clearance(args.token_id)
+    handle_response(response, f"Clearance token {args.token_id} revoked")
 
 def cmd_transfer_upload(args):
-    client = get_client()
+    """Upload user-specific transfer - no classification/departments needed"""
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
 
-    # Public transfers don't use departments or recipients
-    if args.public:
-        departments = []
-        recipients = []
-    else:
-        departments = args.departments.split(",") if args.departments else []
-        recipients = args.recipients.split(",") if args.recipients else []
+    # User-specific transfer requires recipients
+    recipients = args.recipients.split(",") if args.recipients else []
+    if not recipients:
+        print("Error: User-specific transfers require at least one recipient (--recipients)")
+        sys.exit(1)
 
     # Handle multiple files - create zip if needed
     files = args.files.split(",") if args.files else []
@@ -165,7 +259,7 @@ def cmd_transfer_upload(args):
     file_data = None
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_zip:
-            zip_path = tmp_zip.name
+        zip_path = tmp_zip.name
 
     try:
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -188,36 +282,79 @@ def cmd_transfer_upload(args):
     file_key = km.generate_file_key()
     encrypted_file_data = km.encrypt_file(file_data, file_key)
 
+    # Encrypt file key for each recipient
     recipients_dict = {}
-
-
     for r in recipients:
         res = client.get_user_key(r)
-        key = res.json().get("public_key",None)
+        key = res.json().get("public_key", None)
         if key is None:
+            print(f"Warning: Could not get public key for user {r}")
             continue
-        # encrypt key
         ekey = km.encrypt_with_public_key(file_key, key)
-
         recipients_dict[r] = ekey
 
-    # Determine transfer mode
-    if args.public:
-        transfer_mode = "public"
-        print("Creating public transfer (anyone with link can download)...")
-    else:
-        transfer_mode = "user"
-        print(f"Uploading encrypted file (mode: {transfer_mode})...")
+    print(f"Uploading encrypted file to {len(recipients_dict)} recipients...")
+    response = client.upload_transfer(
+        encrypted_file_data,
+        "Unclassified",  # User-specific transfers don't need classification
+        [],  # No departments
+        args.expiration,
+        "user",
+        recipients_dict,
+    )
+
+    data = handle_response(response, "File uploaded successfully - recipients can download")
+
+def cmd_transfer_upload_public(args):
+    """Upload public transfer - requires classification and departments"""
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
+
+    # Public transfers require classification and departments
+    departments = args.departments.split(",") if args.departments else []
+
+    # Handle multiple files - create zip if needed
+    files = args.files.split(",") if args.files else []
+    if not files:
+        print("Error: No files specified")
+        sys.exit(1)
+
+    file_data = None
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_zip:
+        zip_path = tmp_zip.name
+
+    try:
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for file_path in files:
+                if not os.path.exists(file_path):
+                    print(f"Warning: File not found: {file_path}")
+                    continue
+                print(f"  Adding: {os.path.basename(file_path)}")
+                zf.write(file_path, os.path.basename(file_path))
+
+        with open(zip_path, "rb") as f:
+            file_data = f.read()
+    finally:
+        if os.path.exists(zip_path):
+            os.unlink(zip_path)
+
+    # Generate symmetric key and encrypt file
+    print("Encrypting file...")
+    km = KeyManager()
+    file_key = km.generate_file_key()
+    encrypted_file_data = km.encrypt_file(file_data, file_key)
+
+    print("Creating public transfer (anyone with proper clearance can download)...")
     response = client.upload_transfer(
         encrypted_file_data,
         args.classification,
         departments,
         args.expiration,
-        transfer_mode,
-        recipients_dict,
+        "public",
+        {},  # No recipients for public transfers
     )
 
-    data = handle_response(response, "File uploaded and encrypted successfully")
+    data = handle_response(response, "Public transfer created successfully")
 
     # For public transfers, show the complete URL with key fragment
     if data and data.get("public_access_token"):
@@ -229,17 +366,17 @@ def cmd_transfer_upload(args):
         print("\nNote: The key is in the URL fragment (#) and never sent to the server.")
 
 def cmd_transfer_list(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.list_transfers()
     handle_response(response)
 
 def cmd_transfer_get(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.get_transfer(args.id, args.justification)
     handle_response(response)
 
 def cmd_transfer_download(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
 
     # Get transfer info to get encrypted keys
     print("Fetching transfer information...")
@@ -327,7 +464,7 @@ def cmd_transfer_download(args):
     print(f"File decrypted and saved to: {output_filename}")
 
 def cmd_transfer_delete(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.delete_transfer(args.id)
     handle_response(response, f"Transfer {args.id} deleted")
 
@@ -335,9 +472,11 @@ def cmd_transfer_download_public(args):
     """
     Download public transfer using URL with key in fragment
     Example: https://server/api/public/TOKEN#KEY_BASE64
+    Requires authentication and proper clearance (use --with <clearance_token_id>)
     """
-    import requests
     import urllib.parse
+
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
 
     # Parse URL
     parsed = urllib.parse.urlparse(args.url)
@@ -355,14 +494,25 @@ def cmd_transfer_download_public(args):
         print(f"Error: Invalid key in URL fragment: {e}")
         sys.exit(1)
 
-    # Remove fragment for actual download
-    url_without_fragment = parsed._replace(fragment='').geturl()
+    # Extract the access token from the path
+    # Path should be like /api/public/TOKEN
+    path_parts = parsed.path.split('/')
+    if 'public' not in path_parts:
+        print("Error: Invalid public transfer URL")
+        sys.exit(1)
 
-    print(f"Downloading from: {url_without_fragment}")
+    public_index = path_parts.index('public')
+    if public_index + 1 >= len(path_parts):
+        print("Error: No access token in URL")
+        sys.exit(1)
 
-    # Download encrypted file (no auth required)
+    access_token = path_parts[public_index + 1]
+
+    print(f"Downloading public transfer (token: {access_token})")
+
+    # Download encrypted file with authentication and clearance
     try:
-        response = requests.get(url_without_fragment, verify=False)
+        response = client.get(f"/api/public/{access_token}")
         if response.status_code != 200:
             print(f"Error: {response.status_code}")
             try:
@@ -401,17 +551,17 @@ def cmd_transfer_download_public(args):
     print(f"File decrypted and saved to: {output_filename}")
 
 def cmd_audit_log(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.get_audit_log()
     handle_response(response)
 
 def cmd_audit_verify(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.verify_audit_chain()
     handle_response(response)
 
 def cmd_audit_validate(args):
-    client = get_client()
+    client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.add_audit_verification(args.entry_id, args.signature)
     handle_response(response, "Verification added to audit log")
 
@@ -421,22 +571,42 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Configuration
   sshare config set-server https://localhost:8443
+  sshare config show                    # View current config including saved role/clearance
+  sshare config clear-role              # Clear saved acting role
+  sshare config clear-clearance         # Clear saved acting clearance
+
+  # Organization and user setup
   sshare org create --name "ACME Corp" --admin admin
   sshare activate --username admin --code CODE --password pass123
   sshare login --username admin --password pass123
-  sshare dept create --name Engineering
-  sshare user create --username alice
-  sshare role assign --user-id 2 --role "Security Officer"
-  sshare role assign --user-id 2 --role "Standard User"  # To revoke elevated role
-  sshare clearance assign --user-id 2 --level "Top Secret" --departments "Engineering,Finance"
-  sshare clearance revoke --user-id 2 --token-id 5  # Revoke clearance
-  sshare transfer upload --file document.pdf --classification "Secret" --departments "Engineering" --encrypted-keys "2:key123"
-  sshare transfer download --id 1
-  sshare transfer download --id 1 --output custom_name.pdf
-  sshare audit log
+
+  # Role management - use short names [ad, so, to, au, su] or full names
+  sshare user list --as ad                        # View users (using short "ad" for Administrator)
+  sshare user create --username alice --as ad     # Saves "Administrator"
+  sshare role assign --user-id 2 --role so        # Admin assigns Security Officer
+  sshare role assign --user-id 3 --role au --as so  # SO assigns Auditor
+  sshare role revoke --token-id 5 --as so        # Revoke role by token ID
+
+  # Clearances and transfers
+  sshare clearance assign --user-id 2 --level "Top Secret" --departments "Engineering,Finance" --as so
+  sshare clearance revoke --token-id 10 --as so  # Revoke by token ID
+
+  # User-specific transfer (no classification/MLS needed)
+  sshare transfer upload --files doc.pdf,report.xlsx --recipients 2,3
+
+  # Public transfer (requires classification and clearance)
+  sshare transfer upload-public --files doc.pdf --classification "Secret" --departments "Engineering" --with 15
+  sshare transfer download-public --url https://server/api/public/TOKEN#KEY --with 15
+
+  sshare audit log --as au                       # View audit log as Auditor
         """
     )
+
+    # Global arguments for specifying which role and clearance to act as
+    parser.add_argument("--as", dest="as_role", help="Specify which role to act as. Use short names [ad, so, to, au, su] or full names. Saved for future commands. View with 'config show', clear with 'config clear-role'. Defaults to Standard User if not set.")
+    parser.add_argument("--with", dest="with_clearance", type=int, help="Specify which clearance token ID to use. Saved for future commands. View with 'config show', clear with 'config clear-clearance'. If not set, user has no clearance.")
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -445,6 +615,8 @@ Examples:
     config_set = config_sub.add_parser("set-server", help="Set server URL")
     config_set.add_argument("url", help="Server URL")
     config_sub.add_parser("show", help="Show current configuration")
+    config_sub.add_parser("clear-role", help="Clear saved acting role")
+    config_sub.add_parser("clear-clearance", help="Clear saved acting clearance")
     config_parser.set_defaults(func=cmd_config)
 
     org_parser = subparsers.add_parser("org", help="Organization management")
@@ -497,10 +669,13 @@ Examples:
 
     role_parser = subparsers.add_parser("role", help="Role management")
     role_sub = role_parser.add_subparsers(dest="action")
-    role_assign = role_sub.add_parser("assign", help="Assign role to user (replaces previous role)")
+    role_assign = role_sub.add_parser("assign", help="Assign privileged role to user")
     role_assign.add_argument("--user-id", type=int, required=True, help="User ID")
-    role_assign.add_argument("--role", required=True, choices=["Administrator", "Security Officer", "Trusted Officer", "Standard User", "Auditor"], help="Role name")
+    role_assign.add_argument("--role", required=True, choices=["Security Officer", "Trusted Officer", "Auditor", "so", "to", "au"], help="Role name: so=Security Officer, to=Trusted Officer, au=Auditor (everyone is Standard User by default)")
     role_assign.set_defaults(func=cmd_role_assign)
+    role_revoke = role_sub.add_parser("revoke", help="Revoke privileged role (user reverts to Standard User)")
+    role_revoke.add_argument("--token-id", type=int, required=True, help="Role token ID (use 'user list' to see token IDs)")
+    role_revoke.set_defaults(func=cmd_role_revoke)
 
     clearance_parser = subparsers.add_parser("clearance", help="Clearance management")
     clearance_sub = clearance_parser.add_subparsers(dest="action")
@@ -514,20 +689,26 @@ Examples:
     clearance_get.add_argument("--user-id", type=int, required=True, help="User ID")
     clearance_get.set_defaults(func=cmd_clearance_get)
     clearance_revoke = clearance_sub.add_parser("revoke", help="Revoke clearance token")
-    clearance_revoke.add_argument("--user-id", type=int, required=True, help="User ID")
-    clearance_revoke.add_argument("--token-id", type=int, required=True, help="Clearance token ID")
+    clearance_revoke.add_argument("--token-id", type=int, required=True, help="Clearance token ID (use 'user list' to see token IDs)")
     clearance_revoke.set_defaults(func=cmd_clearance_revoke)
 
     transfer_parser = subparsers.add_parser("transfer", help="File transfer management")
     transfer_sub = transfer_parser.add_subparsers(dest="action")
-    transfer_upload = transfer_sub.add_parser("upload", help="Upload encrypted file(s)")
+
+    # User-specific upload - no classification/departments needed
+    transfer_upload = transfer_sub.add_parser("upload", help="Upload file(s) to specific users (no MLS enforcement)")
     transfer_upload.add_argument("--files", required=True, help="Comma-separated file paths (multiple files will be zipped)")
-    transfer_upload.add_argument("--classification", required=True, choices=["Unclassified", "Confidential", "Secret", "Top Secret"], help="Classification level")
-    transfer_upload.add_argument("--departments", help="Comma-separated department names (all users in departments)")
-    transfer_upload.add_argument("--recipients", help="Comma-separated user IDs (specific users)")
-    transfer_upload.add_argument("--public", action="store_true", help="Create public transfer (anyone with link can access)")
+    transfer_upload.add_argument("--recipients", required=True, help="Comma-separated user IDs (target users)")
     transfer_upload.add_argument("--expiration", type=int, default=7, help="Expiration days (default: 7)")
     transfer_upload.set_defaults(func=cmd_transfer_upload)
+
+    # Public upload - requires classification and departments
+    transfer_upload_public = transfer_sub.add_parser("upload-public", help="Upload public file(s) with MLS enforcement")
+    transfer_upload_public.add_argument("--files", required=True, help="Comma-separated file paths (multiple files will be zipped)")
+    transfer_upload_public.add_argument("--classification", required=True, choices=["Unclassified", "Confidential", "Secret", "Top Secret"], help="Classification level")
+    transfer_upload_public.add_argument("--departments", help="Comma-separated department names")
+    transfer_upload_public.add_argument("--expiration", type=int, default=7, help="Expiration days (default: 7)")
+    transfer_upload_public.set_defaults(func=cmd_transfer_upload_public)
     transfer_list = transfer_sub.add_parser("list", help="List transfers")
     transfer_list.set_defaults(func=cmd_transfer_list)
     transfer_get = transfer_sub.add_parser("get", help="Get transfer info")
@@ -557,6 +738,10 @@ Examples:
     audit_validate.add_argument("--entry-id", type=int, required=True, help="Entry ID")
     audit_validate.add_argument("--signature", required=True, help="Signature")
     audit_validate.set_defaults(func=cmd_audit_validate)
+
+    # Enable tab completion if argcomplete is available
+    if ARGCOMPLETE_AVAILABLE:
+        argcomplete.autocomplete(parser)
 
     args = parser.parse_args()
 

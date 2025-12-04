@@ -2,7 +2,6 @@ from sqlalchemy.orm import Session
 from models.models import Organization, User, Role, RoleToken, RecoveryTokens
 from schemas.schemas import CreateOrganizationRequest
 from enums import RoleEnum
-import secrets
 from utils.funcs import generate_codes, sha256
 from utils.rbac import role2user
 
@@ -82,7 +81,7 @@ class OrganizationService:
         }
 
     @staticmethod
-    def finalize_admin_role(db: Session, user_id: int, organization_id: int):
+    def finalize_admin_role(db: Session, user_id: int):
         """
         Creates the admin role token after user completes FIDO2 registration.
         This should be called from the auth service after successful registration.
@@ -96,6 +95,14 @@ class OrganizationService:
             db,
             b"bootstrap",
             RoleEnum.ADMINISTRATOR.value,
+            None,
+            user_id,
+            user_id
+        )
+        role2user(
+            db,
+            b"bootstrap",
+            RoleEnum.STANDARD_USER.value,
             None,
             user_id,
             user_id

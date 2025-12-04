@@ -4,6 +4,7 @@ from typing import Optional, Tuple
 from fastapi import HTTPException, Header, Depends
 from database import get_db
 from models.models import Role, RoleToken, User
+from enums import RoleEnum
 
 def role2user(db: Session, signature: bytes, role: str, expires_at: Optional[int], target_id: int, issuer_id: int):
     """
@@ -34,6 +35,8 @@ def role2user(db: Session, signature: bytes, role: str, expires_at: Optional[int
     db.add(role_token)
     db.commit()
 
+    return role_token
+
 def require_role(required_roles: list[str]):
     """
     FastAPI dependency to check if the authenticated user has any of the required roles.
@@ -49,6 +52,7 @@ def require_role(required_roles: list[str]):
 
     def role_checker(
         authorization: str = Header(...),
+        x_acting_role: Optional[str] = Header(None),
         db: Session = Depends(get_db)
     ):
         from models.models import User, Session as SessionModel
@@ -61,7 +65,7 @@ def require_role(required_roles: list[str]):
         ).first()
 
         if not session:
-            raise HTTPException(status_code=401, detail="Invalid or expired session")
+            raise HTTPException(status_code=401, detail="Invalid session")
 
         # Check if session is expired
         current_time = time.time()
@@ -76,8 +80,15 @@ def require_role(required_roles: list[str]):
             raise HTTPException(status_code=401, detail="User not found or inactive")
 
         user_roles = get_active_user_roles(db, user.id)
+        acting_role = x_acting_role or RoleEnum.STANDARD_USER
 
-        if not any(role in user_roles for role in required_roles):
+        if acting_role not in user_roles:
+            raise HTTPException(
+                status_code=404,
+                detail=f"User does not have {acting_role}"
+            )
+
+        if acting_role not in required_roles:
             raise HTTPException(
                 status_code=403,
                 detail=f"Required role: {' or '.join(required_roles)}"

@@ -7,9 +7,11 @@ import base64
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class APIClient:
-    def __init__(self, base_url: str, token: Optional[str] = None):
+    def __init__(self, base_url: str, token: Optional[str] = None, acting_role: Optional[str] = None, acting_clearance: Optional[int] = None):
         self.base_url = base_url.rstrip('/')
         self.token = token
+        self.acting_role = acting_role
+        self.acting_clearance = acting_clearance
         self.session = requests.Session()
         self.session.verify = False
 
@@ -17,20 +19,22 @@ class APIClient:
         headers = {"Content-Type": "application/json"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
+        if self.acting_role:
+            headers["X-Acting-Role"] = self.acting_role
+        if self.acting_clearance is not None:
+            headers["X-Acting-Clearance"] = str(self.acting_clearance)
         return headers
 
     def _url(self, path: str) -> str:
         return f"{self.base_url}{path}"
 
     def post(self, path: str, data: dict = None, files: dict = None):
-        headers = {}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-
+        headers = self._headers()
         if files:
+            # Remove Content-Type for file uploads - requests will set multipart/form-data automatically
+            headers.pop("Content-Type", None)
             response = self.session.post(self._url(path), headers=headers, data=data, files=files)
         else:
-            headers["Content-Type"] = "application/json"
             response = self.session.post(self._url(path), headers=headers, json=data)
 
         return response
@@ -106,8 +110,11 @@ class APIClient:
     def get_clearance(self, user_id: int):
         return self.get(f"/api/users/{user_id}/clearance")
 
-    def revoke_clearance(self, user_id: int, token_id: int):
-        return self.put(f"/api/users/{user_id}/revoke/{token_id}")
+    def revoke_clearance(self, token_id: int):
+        return self.put(f"/api/users/clearance/revocation/{token_id}")
+
+    def revoke_role(self, token_id: int):
+        return self.put(f"/api/users/role/revocation/{token_id}")
 
     def get_user_key(self, user_id: int):
         return self.get(f"/api/users/{user_id}/key")

@@ -1,7 +1,8 @@
+from utils.rbac import role2user
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from models.models import ClearanceToken, Department, ClearanceLevel, User, RoleToken, Role, RoleRevocation, ClearanceRevocation
-from utils.jwt_utils import sign_data, verify_signature
+from utils.jwt_utils import sign_data
 from datetime import datetime, timedelta
 from typing import List, Optional
 import json
@@ -39,12 +40,24 @@ class ClearanceService:
 
         expiration = datetime.utcnow() + timedelta(days=expires_in_days)
 
+        # Generate signature for clearance token
+        token_data = {
+            "clearance_level": clearance_level,
+            "user_id": user_id,
+            "issuer_id": issuer_id,
+            "departments": sorted(departments),  # Sort for consistent signature
+            "expires_at": expiration.isoformat(),
+            "is_organizational": is_organizational
+        }
+        signature = sign_data(json.dumps(token_data, sort_keys=True).encode())
+
         clearance_token = ClearanceToken(
             expiration_time=expiration,
             is_organizational=is_organizational,
             issuer_id=issuer_id,
             user_id=user_id,
-            clearance_level_id=clearance_obj.id
+            clearance_level_id=clearance_obj.id,
+            signature=signature
         )
 
         db.add(clearance_token)
@@ -151,44 +164,40 @@ class RoleService:
         if not role:
             raise ValueError(f"Role '{role_label}' not found")
 
+        # PROTECTION: Cannot assign Administrator or Standard User role via this endpoint
         if role.label == RoleEnum.ADMINISTRATOR:
-            raise ValueError(f"Can't assign {role.label}")
+            raise ValueError(f"Cannot assign {role.label} - Administrators can only be created during organization setup")
+
+        if role.label == RoleEnum.STANDARD_USER:
+            raise ValueError("Cannot assign Standard User - everyone is Standard User by default")
 
         target_user = db.query(User).filter(User.id == target_id).first()
         if not target_user:
             raise ValueError("Target user not found")
 
-        # IMPORTANT: User can only have ONE role at a time
-        # Revoke all existing active roles before assigning new one
-        existing_roles = db.query(RoleToken).filter(
-            RoleToken.target_id == target_id
-        ).all()
+        from utils.rbac import get_active_user_roles
+        target_roles = get_active_user_roles(db, target_id)
+        if RoleEnum.ADMINISTRATOR.value in target_roles:
+            raise ValueError("Cannot modify Administrator role")
 
-        ADMIN_ROLE: Role = db.query(Role).filter(
-            Role.label == RoleEnum.ADMINISTRATOR.value).first()
-        
+        # Check what roles the issuer has
+        issuer_roles = get_active_user_roles(db, issuer_id)
 
-        for existing_role in existing_roles:
-            # Check if not already revoked
-            existing_revocation = db.query(RoleRevocation).filter(
-                RoleRevocation.role_token_id == existing_role.id
-            ).first()
+        if RoleEnum.ADMINISTRATOR.value in issuer_roles :
+            if role_label != RoleEnum.SECURITY_OFFICER.value:
+                raise ValueError(f"Administrators can only assign Security Officer role, not '{role_label}'")
 
-            if not existing_revocation:
+        elif RoleEnum.SECURITY_OFFICER.value in issuer_roles:
+            if role_label not in [RoleEnum.TRUSTED_OFFICER.value, RoleEnum.AUDITOR.value]:
+                raise ValueError(f"Security Officers can only assign Trusted Officer or Auditor roles, not '{role_label}'")
 
-                if existing_role.role_id == ADMIN_ROLE.id:
-                    raise ValueError("Target user is a ADMINISTRATOR")
+        else:
+            raise ValueError("You do not have permission to assign roles")
 
-                # Revoke the old role
-                revocation = RoleRevocation(
-                    role_token_id=existing_role.id,
-                    revoker_id=issuer_id
-                )
-                db.add(revocation)
-                print(
-                    f"[INFO] Auto-revoked previous role token {existing_role.id} for user {target_id}")
+        privileged_roles = [r for r in target_roles if r != RoleEnum.STANDARD_USER.value]
+        if privileged_roles:
+            raise ValueError(f"User already has privileged role '{privileged_roles[0]}'.")
 
-        # Now assign the new role
         expiration = None
         if expires_in_days:
             expiration = datetime.utcnow() + timedelta(days=expires_in_days)
@@ -202,16 +211,14 @@ class RoleService:
 
         signature = sign_data(json.dumps(token_data, sort_keys=True).encode())
 
-        role_token = RoleToken(
-            role_id=role.id,
-            signature=signature,
+        role_token = role2user(
+            db,
+            signature,
+            role_label,
             expires_at=expiration,
             target_id=target_id,
             issuer_id=issuer_id
         )
-
-        db.add(role_token)
-        db.commit()
 
         print(f"[INFO] Assigned role '{role_label}' to user {target_id}")
 
@@ -219,10 +226,20 @@ class RoleService:
 
     @staticmethod
     def revoke_role(db: Session, revoker_id: int, role_token_id: int):
-        role_token = db.query(RoleToken).filter(
-            RoleToken.id == role_token_id).first()
+        role_token = db.query(RoleToken, Role).join(
+            Role, RoleToken.role_id == Role.id
+        ).filter(
+            RoleToken.id == role_token_id
+        ).first()
+
         if not role_token:
             raise ValueError("Role token not found")
+
+        _, role = role_token
+
+        # PROTECTION: Cannot revoke Administrator roles
+        if role.label in [RoleEnum.ADMINISTRATOR.value, RoleEnum.SECURITY_OFFICER.value]:
+            raise ValueError(f"Cannot revoke {role.label} role")
 
         existing_revocation = db.query(RoleRevocation).filter(
             RoleRevocation.role_token_id == role_token_id
