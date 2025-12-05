@@ -139,6 +139,11 @@ async def get_transfer(
                 db, user.id, "TRUSTED_OFFICER_ACCESS",
                 {"transfer_id": transfer_id, "justification": justification}
             )
+        else:
+            raise HTTPException(
+                status_code = 403,
+                detail= "Cannot bypass MLS without justification"
+            )
 
     transfer = TransferService.get_transfer(db, transfer_id, user.id)
     if not transfer:
