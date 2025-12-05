@@ -63,7 +63,26 @@ SELECT * FROM roles;
 SELECT * FROM clearance_levels;
 SELECT * FROM users;
 SELECT * FROM organizations;
+SELECT * FROM audit_log;
+SELECT * FROM audit_verification;
 ```
+
+
+## Testing Audit Log Tampering Detection
+
+### Quick Automated Test 
+```bash
+# 1. Setup complete test environment (org, users, departments, audit log entries)
+chmod +x setup_test_env.sh
+./setup_test_env.sh
+
+# 2. Run automated tampering test (tampers with entry and verifies detection)
+chmod +x test_tampering_scenario.sh
+./test_tampering_scenario.sh
+```
+
+**See indications on adulteration_tests.md**
+
 
 
 ## Docs 
