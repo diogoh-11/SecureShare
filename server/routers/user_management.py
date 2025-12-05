@@ -119,7 +119,8 @@ async def update_user_role(
     #TODO: security officer points trusted officers and auditor
     try:
         role_token = RoleService.assign_role(
-            db, user.id, user_id, request.role, expires_in_days=365)
+            db, user.id, user_id, request.role,
+            request.signed_role_token, request.expires_at)
         AuditService.log_action(db, user.id, "ASSIGN_ROLE", {
                                 "target_user_id": user_id, "role": request.role})
 
@@ -166,12 +167,14 @@ async def add_user_clearance(
 
     try:
         clearance = ClearanceService.create_clearance_token(
-            db, user.id, user_id, request.clearance_level, request.departments
+            db, user.id, user_id, request.clearance_level,
+            request.departments, request.signed_token, request.expires_at,
+            request.is_organizational
         )
         AuditService.log_action(
             db, user.id, "ASSIGN_CLEARANCE",
             {"target_user_id": user_id, "level": request.clearance_level,
-                "departments": request.departments}
+                "departments": request.departments, "is_organizational": request.is_organizational}
         )
 
         return {

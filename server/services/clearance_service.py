@@ -2,7 +2,6 @@ from utils.rbac import role2user
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from models.models import ClearanceToken, Department, ClearanceLevel, User, RoleToken, Role, RoleRevocation, ClearanceRevocation
-from utils.jwt_utils import sign_data
 from datetime import datetime, timedelta
 from typing import List, Optional
 import json
@@ -17,9 +16,13 @@ class ClearanceService:
         user_id: int,
         clearance_level: str,
         departments: List[str],
-        expires_in_days: int = 30,
+        signature_b64: str,
+        expires_at_iso: str,
         is_organizational: bool = False
     ):
+        from services.user_management_service import UserManagementService
+        from utils.crypto_utils import verify_signature
+
         clearance_obj = db.query(ClearanceLevel).filter(
             ClearanceLevel.label == clearance_level
         ).first()
@@ -38,18 +41,28 @@ class ClearanceService:
             if dept:
                 department_objs.append(dept)
 
-        expiration = datetime.utcnow() + timedelta(days=expires_in_days)
+        # Parse the expiration time from the request
+        expiration = datetime.fromisoformat(expires_at_iso.replace('Z', '+00:00'))
 
-        # Generate signature for clearance token
+        # Build the same token data structure that the client signed
         token_data = {
             "clearance_level": clearance_level,
             "user_id": user_id,
             "issuer_id": issuer_id,
             "departments": sorted(departments),  # Sort for consistent signature
-            "expires_at": expiration.isoformat(),
+            "expires_at": expires_at_iso,
             "is_organizational": is_organizational
         }
-        signature = sign_data(json.dumps(token_data, sort_keys=True).encode())
+        token_data_str = json.dumps(token_data, sort_keys=True)
+
+        # Verify signature using issuer's public key
+        issuer_public_key = UserManagementService.get_user_public_key(db, issuer_id)
+        if not verify_signature(token_data_str, signature_b64, issuer_public_key):
+            raise ValueError("Invalid signature on clearance token")
+
+        # Convert signature to bytes for storage
+        import base64
+        signature_bytes = base64.b64decode(signature_b64)
 
         clearance_token = ClearanceToken(
             expiration_time=expiration,
@@ -57,7 +70,7 @@ class ClearanceService:
             issuer_id=issuer_id,
             user_id=user_id,
             clearance_level_id=clearance_obj.id,
-            signature=signature
+            signature=signature_bytes
         )
 
         db.add(clearance_token)
@@ -157,8 +170,12 @@ class RoleService:
         issuer_id: int,
         target_id: int,
         role_label: str,
-        expires_in_days: Optional[int] = None
+        signature_b64: str,
+        expires_at_iso: Optional[str] = None
     ):
+        from services.user_management_service import UserManagementService
+        from utils.crypto_utils import verify_signature
+
         role: Role | None = db.query(Role).filter(
             Role.label == role_label).first()
         if not role:
@@ -198,22 +215,32 @@ class RoleService:
         if privileged_roles:
             raise ValueError(f"User already has privileged role '{privileged_roles[0]}'.")
 
+        # Parse expiration if provided
         expiration = None
-        if expires_in_days:
-            expiration = datetime.utcnow() + timedelta(days=expires_in_days)
+        if expires_at_iso:
+            expiration = datetime.fromisoformat(expires_at_iso.replace('Z', '+00:00'))
 
+        # Build the same token data structure that the client signed
         token_data = {
             "role": role_label,
             "target_id": target_id,
             "issuer_id": issuer_id,
-            "expires_at": expiration.isoformat() if expiration else None
+            "expires_at": expires_at_iso
         }
+        token_data_str = json.dumps(token_data, sort_keys=True)
 
-        signature = sign_data(json.dumps(token_data, sort_keys=True).encode())
+        # Verify signature using issuer's public key
+        issuer_public_key = UserManagementService.get_user_public_key(db, issuer_id)
+        if not verify_signature(token_data_str, signature_b64, issuer_public_key):
+            raise ValueError("Invalid signature on role token")
+
+        # Convert signature to bytes for storage
+        import base64
+        signature_bytes = base64.b64decode(signature_b64)
 
         role_token = role2user(
             db,
-            signature,
+            signature_bytes,
             role_label,
             expires_at=expiration,
             target_id=target_id,

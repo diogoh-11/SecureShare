@@ -35,8 +35,9 @@ async def create_transfer(
     transfer_mode: str = Form("user"),
     recipients: str = Form("[]"),
     x_acting_clearance: Optional[str] = Header(None),
+    x_acting_role: Optional[str] = Header(None),
     user_db: tuple = Depends(get_current_user),
-    db: Session = Depends(require_role(["Standard User"]))
+    db: Session = Depends(require_role(["Standard User","Trusted Officer"]))
 ):
     """
     Create a file transfer.
@@ -44,6 +45,9 @@ async def create_transfer(
     If not specified, user is treated as having no clearance.
     """
     user, _ = user_db
+
+    # Get acting role (defaults to Standard User)
+    acting_role = x_acting_role or "Standard User"
 
     # Parse clearance token ID if provided
     clearance_token_id = None
@@ -69,7 +73,7 @@ async def create_transfer(
 
     # MLS enforcement: Only check for PUBLIC transfers
     # User-specific transfers are not bound by classification/departments
-    trusted = is_trusted_officer(db, user.id)
+    trusted = is_trusted_officer(db, user.id, acting_role)
     if not trusted and transfer_mode == "public":
         can_upload = check_transfer_write_access(db, user.id, classification_level, dept_list, clearance_token_id)
         if not can_upload:
@@ -112,12 +116,16 @@ async def create_transfer(
 async def get_transfer(
     transfer_id: int,
     justification: str = None,
+    x_acting_role: Optional[str] = Header(None),
     user_db: tuple = Depends(get_current_user),
-    db: Session = Depends(require_role(["Standard User"]))
+    db: Session = Depends(require_role(["Standard User","Trusted Officer"]))
 ):
     user, _ = user_db
 
-    trusted = is_trusted_officer(db, user.id)
+    # Get acting role (defaults to Standard User)
+    acting_role = x_acting_role or "Standard User"
+
+    trusted = is_trusted_officer(db, user.id, acting_role)
     if not trusted:
         can_access = check_transfer_read_access(db, user.id, transfer_id)
         if not can_access:
@@ -160,8 +168,9 @@ async def delete_transfer(
 async def download_public_transfer(
     access_token: str,
     x_acting_clearance: Optional[str] = Header(None),
+    x_acting_role: Optional[str] = Header(None),
     authorization: str = Header(...),
-    db: Session = Depends(require_role(["Standard User"]))
+    db: Session = Depends(require_role(["Standard User","Trusted Officer"]))
 ):
     """
     Public download endpoint - requires authentication and MLS clearance verification.
@@ -175,13 +184,8 @@ async def download_public_transfer(
     session = db.query(SessionModel).filter(SessionModel.session_token == token).first()
     user = db.query(User).filter(User.id == session.user_id).first()
 
-    # Parse clearance token ID if provided
-    clearance_token_id = None
-    if x_acting_clearance:
-        try:
-            clearance_token_id = int(x_acting_clearance)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="X-Acting-Clearance must be a valid clearance token ID")
+    # Get acting role (defaults to Standard User)
+    acting_role = x_acting_role or "Standard User"
 
     transfer = db.query(Transfer).filter(
         Transfer.public_access_token == access_token
@@ -195,8 +199,22 @@ async def download_public_transfer(
         raise HTTPException(status_code=410, detail="Transfer has expired")
 
     # ENFORCE MLS: Check if user has proper clearance to access this transfer
-    trusted = is_trusted_officer(db, user.id)
+    # Trusted Officers can bypass MLS checks
+    trusted = is_trusted_officer(db, user.id, acting_role)
     if not trusted:
+        # Non-trusted users must provide clearance
+        clearance_token_id = None
+        if x_acting_clearance:
+            try:
+                clearance_token_id = int(x_acting_clearance)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="X-Acting-Clearance must be a valid clearance token ID")
+        else:
+            raise HTTPException(
+                status_code=403,
+                detail="Public transfers require clearance. Use --with <clearance_token_id> to specify your clearance."
+            )
+
         can_access = check_transfer_read_access(db, user.id, transfer.id, clearance_token_id)
         if not can_access:
             raise HTTPException(
@@ -226,6 +244,7 @@ async def download_transfer(
     transfer_id: int,
     justification: str = None,
     x_acting_clearance: Optional[str] = Header(None),
+    x_acting_role: Optional[str] = Header(None),
     user_db: tuple = Depends(get_current_user),
     db: Session = Depends(require_role(["Standard User"]))
 ):
@@ -236,13 +255,16 @@ async def download_transfer(
     from models.models import TransferKey
     user, _ = user_db
 
+    # Get acting role (defaults to Standard User)
+    acting_role = x_acting_role or "Standard User"
+
     # Check if user is a recipient of this transfer
     is_recipient = db.query(TransferKey).filter(
         TransferKey.transfer_id == transfer_id,
         TransferKey.user_id == user.id
     ).first() is not None
 
-    trusted = is_trusted_officer(db, user.id)
+    trusted = is_trusted_officer(db, user.id, acting_role)
 
     if not is_recipient and not trusted:
         raise HTTPException(

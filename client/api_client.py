@@ -6,6 +6,7 @@ import base64
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+
 class APIClient:
     def __init__(self, base_url: str, token: Optional[str] = None, acting_role: Optional[str] = None, acting_clearance: Optional[int] = None):
         self.base_url = base_url.rstrip('/')
@@ -31,24 +32,29 @@ class APIClient:
     def post(self, path: str, data: dict = None, files: dict = None):
         headers = self._headers()
         if files:
-            # Remove Content-Type for file uploads - requests will set multipart/form-data automatically
-            headers.pop("Content-Type", None)
-            response = self.session.post(self._url(path), headers=headers, data=data, files=files)
+            # Don't set Content-Type for multipart/form-data - requests will set it automatically
+            del headers["Content-Type"]
+            response = self.session.post(
+                self._url(path), headers=headers, data=data, files=files)
         else:
-            response = self.session.post(self._url(path), headers=headers, json=data)
+            response = self.session.post(
+                self._url(path), headers=headers, json=data)
 
         return response
 
     def get(self, path: str, params: dict = None):
-        response = self.session.get(self._url(path), headers=self._headers(), params=params)
+        response = self.session.get(
+            self._url(path), headers=self._headers(), params=params)
         return response
 
     def put(self, path: str, data: dict = None):
-        response = self.session.put(self._url(path), headers=self._headers(), json=data)
+        response = self.session.put(
+            self._url(path), headers=self._headers(), json=data)
         return response
 
     def delete(self, path: str):
-        response = self.session.delete(self._url(path), headers=self._headers())
+        response = self.session.delete(
+            self._url(path), headers=self._headers())
         return response
 
     def create_organization(self, org_name: str, admin_username: str):
@@ -93,18 +99,20 @@ class APIClient:
     def delete_user(self, user_id: int):
         return self.delete(f"/api/users/{user_id}")
 
-    def assign_role(self, user_id: int, role: str):
+    def assign_role(self, user_id: int, role: str, signature: str, expires_at: str = None):
         return self.put(f"/api/users/{user_id}/role", {
             "role": role,
-            "signed_role_token": "signature"
+            "signed_role_token": signature,
+            "expires_at": expires_at
         })
 
-    def assign_clearance(self, user_id: int, clearance_level: str, departments: list, expires_at: str = "2025-12-31"):
+    def assign_clearance(self, user_id: int, clearance_level: str, departments: list, expires_at: str, signature: str, is_organizational: bool = False):
         return self.put(f"/api/users/{user_id}/clearance", {
             "clearance_level": clearance_level,
             "departments": departments,
             "expires_at": expires_at,
-            "signed_token": "signature"
+            "signed_token": signature,
+            "is_organizational": is_organizational
         })
 
     def get_clearance(self, user_id: int):
@@ -131,8 +139,7 @@ class APIClient:
     def update_password(self, new_password: str):
         return self.post("/api/users/me/info", {"password": new_password})
 
-
-    def _encode_recipients_dict(self,recipients: dict) -> dict:
+    def _encode_recipients_dict(self, recipients: dict) -> dict:
         """Convert {user_id: bytes} → {user_id: base64_string}."""
         if not recipients:
             return {}
@@ -142,7 +149,8 @@ class APIClient:
             if isinstance(value, bytes):
                 encoded[user_id] = base64.b64encode(value).decode("utf-8")
             else:
-                encoded[user_id] = value  # already string or something serializable
+                # already string or something serializable
+                encoded[user_id] = value
 
         return encoded
 
@@ -184,8 +192,13 @@ class APIClient:
     def verify_audit_chain(self):
         return self.get("/api/audit/verify")
 
-    def add_audit_verification(self, entry_id: int, signature: str):
+    def get_audit_verifications(self):
+        return self.get("/api/audit/verifications")
+
+    def get_latest_audit_entry(self):
+        return self.get("/api/audit/latest-entry")
+
+    def add_audit_verification(self, signature: str):
         return self.put("/api/audit/validate", {
-            "entry_id": entry_id,
             "signature": signature
         })

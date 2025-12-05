@@ -77,6 +77,7 @@ def get_client(acting_role=None, acting_clearance=None):
 
     return APIClient(server, token, acting_role, acting_clearance)
 
+
 def handle_response(response, success_message=None):
     try:
         data = response.json()
@@ -86,7 +87,8 @@ def handle_response(response, success_message=None):
             print(json.dumps(data, indent=2))
             return data
         else:
-            print(f"Error {response.status_code}: {data.get('detail', 'Unknown error')}")
+            print(
+                f"Error {response.status_code}: {data.get('detail', 'Unknown error')}")
             sys.exit(1)
     except json.JSONDecodeError:
         if response.status_code in [200, 201]:
@@ -95,33 +97,26 @@ def handle_response(response, success_message=None):
             print(f"Error {response.status_code}: {response.text}")
             sys.exit(1)
 
+
 def cmd_config(args):
     if args.action == "set-server":
         save_config("server", args.url)
         print(f"Server set to: {args.url}")
     elif args.action == "clear-role":
-        from config import load_config
+        from config import load_config, _save_config_file
         config = load_config()
         if "acting_role" in config:
             config.pop("acting_role")
-            from pathlib import Path
-            import json
-            CONFIG_FILE = Path.home() / ".sshare" / "config.json"
-            with open(CONFIG_FILE, "w") as f:
-                json.dump(config, f, indent=2)
+            _save_config_file(config)
             print("Saved acting role cleared")
         else:
             print("No saved acting role to clear")
     elif args.action == "clear-clearance":
-        from config import load_config
+        from config import load_config, _save_config_file
         config = load_config()
         if "acting_clearance" in config:
             config.pop("acting_clearance")
-            from pathlib import Path
-            import json
-            CONFIG_FILE = Path.home() / ".sshare" / "config.json"
-            with open(CONFIG_FILE, "w") as f:
-                json.dump(config, f, indent=2)
+            _save_config_file(config)
             print("Saved acting clearance cleared")
         else:
             print("No saved acting clearance to clear")
@@ -135,12 +130,15 @@ def cmd_config(args):
         print(f"Acting Role: {acting_role if acting_role else 'Not set (defaults to Standard User)'}")
         print(f"Acting Clearance: {acting_clearance if acting_clearance else 'Not set (no clearance)'}")
 
+
 def cmd_org_create(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.create_organization(args.name, args.admin)
     data = handle_response(response, "Organization created successfully")
     if data and "activation_code" in data:
-        print(f"\nIMPORTANT: Save this activation code: {data['activation_code']}")
+        print(
+            f"\nIMPORTANT: Save this activation code: {data['activation_code']}")
+
 
 def cmd_activate(args):
     print("Generating RSA-4096 keypair...")
@@ -163,6 +161,7 @@ def cmd_login(args):
         save_token(data["access_token"])
         print("\nToken saved. You are now authenticated.")
 
+
 def cmd_logout(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.logout()
@@ -170,53 +169,110 @@ def cmd_logout(args):
     clear_token()
     print("Logged out. Token cleared.")
 
+
 def cmd_dept_create(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.create_department(args.name)
     handle_response(response, "Department created successfully")
+
 
 def cmd_dept_list(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.list_departments()
     handle_response(response)
 
+
 def cmd_dept_delete(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.delete_department(args.id)
     handle_response(response, f"Department {args.id} deleted")
+
 
 def cmd_user_create(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.create_user(args.username)
     data = handle_response(response, "User created successfully")
     if data and "activation_code" in data:
-        print(f"\nIMPORTANT: Save this activation code: {data['activation_code']}")
+        print(
+            f"\nIMPORTANT: Save this activation code: {data['activation_code']}")
+
 
 def cmd_user_list(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.list_users()
     handle_response(response)
 
+
 def cmd_user_delete(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.delete_user(args.id)
     handle_response(response, f"User {args.id} deleted")
+
 
 def cmd_user_info(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.get_user_info()
     handle_response(response)
 
+
 def cmd_user_update_password(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.update_password(args.password)
     handle_response(response, "Password updated successfully")
 
+
 def cmd_role_assign(args):
+    import json
+    import getpass
+
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
+
     # Normalize role name (convert short names to full names)
     role = normalize_role_name(args.role)
-    response = client.assign_role(args.user_id, role)
+
+    # Get current user info to get issuer_id and private key
+    user_info_response = client.get("/api/users/me/info")
+    if user_info_response.status_code != 200:
+        print(f"Error: Failed to get user info: {user_info_response.text}")
+        sys.exit(1)
+
+    user_info = user_info_response.json()
+    issuer_id = user_info.get("id")
+    encrypted_blob = user_info.get("private_key_blob")
+
+    if not encrypted_blob:
+        print("Error: No private key found. Cannot sign role token.")
+        sys.exit(1)
+
+    # Prompt for password to decrypt private key
+    password = getpass.getpass("Enter your password to sign role token: ")
+
+    print("Decrypting private key...")
+    km = KeyManager()
+    try:
+        km.decrypt_blob(encrypted_blob, password)
+    except Exception as e:
+        print(f"Error: Failed to decrypt private key. Wrong password? {e}")
+        sys.exit(1)
+
+    # Expiration is optional for roles (None means no expiration)
+    expires_at_iso = None
+
+    # Build token data structure (must match server-side verification)
+    token_data = {
+        "role": role,
+        "target_id": args.user_id,
+        "issuer_id": issuer_id,
+        "expires_at": expires_at_iso
+    }
+
+    # Sign the token data
+    token_data_str = json.dumps(token_data, sort_keys=True)
+    print("Signing role token...")
+    signature = km.sign_data(token_data_str)
+
+    # Send to server
+    response = client.assign_role(args.user_id, role, signature, expires_at_iso)
     handle_response(response, f"Role '{role}' assigned to user {args.user_id}")
 
 def cmd_role_revoke(args):
@@ -225,15 +281,81 @@ def cmd_role_revoke(args):
     handle_response(response, f"Role token {args.token_id} revoked")
 
 def cmd_clearance_assign(args):
+    import json
+    from datetime import datetime, timedelta
+    import getpass
+
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
+
+    # Get current user info to get issuer_id and private key
+    user_info_response = client.get("/api/users/me/info")
+    if user_info_response.status_code != 200:
+        print(f"Error: Failed to get user info: {user_info_response.text}")
+        sys.exit(1)
+
+    user_info = user_info_response.json()
+    issuer_id = user_info.get("id")
+    encrypted_blob = user_info.get("private_key_blob")
+
+    if not encrypted_blob:
+        print("Error: No private key found. Cannot sign clearance token.")
+        sys.exit(1)
+
+    # Prompt for password to decrypt private key
+    password = getpass.getpass("Enter your password to sign clearance token: ")
+
+    print("Decrypting private key...")
+    km = KeyManager()
+    try:
+        km.decrypt_blob(encrypted_blob, password)
+    except Exception as e:
+        print(f"Error: Failed to decrypt private key. Wrong password? {e}")
+        sys.exit(1)
+
+    # Parse departments
     departments = args.departments.split(",") if args.departments else []
-    response = client.assign_clearance(args.user_id, args.level, departments, args.expires_at)
+
+    # Determine if organizational
+    is_organizational = getattr(args, 'organizational', False)
+
+    # Validation: organizational clearances should not have specific departments
+    if is_organizational and departments:
+        print("Warning: Organizational clearances apply to all departments. --departments will be ignored.")
+        departments = []
+
+    # Calculate expiration time (use provided or default to 30 days from now)
+    if args.expires_at:
+        expires_at_iso = args.expires_at
+    else:
+        expiration = datetime.utcnow() + timedelta(days=30)
+        expires_at_iso = expiration.isoformat() + 'Z'
+
+    # Build token data structure (must match server-side verification)
+    token_data = {
+        "clearance_level": args.level,
+        "user_id": args.user_id,
+        "issuer_id": issuer_id,
+        "departments": sorted(departments),  # Sort for consistent signature
+        "expires_at": expires_at_iso,
+        "is_organizational": is_organizational
+    }
+
+    # Sign the token data
+    token_data_str = json.dumps(token_data, sort_keys=True)
+    print("Signing clearance token...")
+    signature = km.sign_data(token_data_str)
+
+    # Send to server
+    response = client.assign_clearance(
+        args.user_id, args.level, departments, expires_at_iso, signature, is_organizational)
     handle_response(response, f"Clearance assigned to user {args.user_id}")
+
 
 def cmd_clearance_get(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.get_clearance(args.user_id)
     handle_response(response)
+
 
 def cmd_clearance_revoke(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
@@ -284,6 +406,7 @@ def cmd_transfer_upload(args):
 
     # Encrypt file key for each recipient
     recipients_dict = {}
+
     for r in recipients:
         res = client.get_user_key(r)
         key = res.json().get("public_key", None)
@@ -365,15 +488,18 @@ def cmd_transfer_upload_public(args):
         print(public_url)
         print("\nNote: The key is in the URL fragment (#) and never sent to the server.")
 
+
 def cmd_transfer_list(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.list_transfers()
     handle_response(response)
 
+
 def cmd_transfer_get(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.get_transfer(args.id, args.justification)
     handle_response(response)
+
 
 def cmd_transfer_download(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
@@ -463,10 +589,12 @@ def cmd_transfer_download(args):
 
     print(f"File decrypted and saved to: {output_filename}")
 
+
 def cmd_transfer_delete(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.delete_transfer(args.id)
     handle_response(response, f"Transfer {args.id} deleted")
+
 
 def cmd_transfer_download_public(args):
     """
@@ -550,20 +678,105 @@ def cmd_transfer_download_public(args):
 
     print(f"File decrypted and saved to: {output_filename}")
 
+
 def cmd_audit_log(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.get_audit_log()
     handle_response(response)
+
 
 def cmd_audit_verify(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
     response = client.verify_audit_chain()
     handle_response(response)
 
+
+def cmd_audit_verifications(args):
+    """Show all audit verifications history"""
+    client = get_client()
+    response = client.get_audit_verifications()
+
+    if response.status_code != 200:
+        print(f"Error: {response.text}")
+        return
+
+    data = response.json()
+    verifications = data.get("verifications", [])
+
+    if not verifications:
+        print("No verifications found.")
+        return
+
+    print("\n=== Audit Verification History ===")
+    print(f"Total verifications: {len(verifications)}\n")
+
+    for v in verifications:
+        print(f"Verification ID: {v['id']}")
+        print(f"  Timestamp: {v['timestamp']}")
+        print(f"  Auditor: {v['auditor_username']} (ID: {v['auditor_id']})")
+        print(f"  Verified up to entry: {v['verified_up_to_entry_id']}")
+        print(f"  Entry hash: {v['verified_up_to_hash'][:50]}...")
+        print(f"  Signature: {v['signature'][:50]}...")
+        print()
+
+
 def cmd_audit_validate(args):
     client = get_client(getattr(args, 'as_role', None), getattr(args, 'with_clearance', None))
-    response = client.add_audit_verification(args.entry_id, args.signature)
+
+    # Get latest entry to sign
+    print("Fetching latest audit entry...")
+    entry_response = client.get_latest_audit_entry()
+
+    if entry_response.status_code != 200:
+        print(f"Error: Failed to fetch latest entry - {entry_response.text}")
+        return
+
+    entry_data = entry_response.json()
+    entry_hash = entry_data.get("entryHash")
+    entry_id = entry_data.get("id")
+    print(f"Latest entry ID: {entry_id}")
+    print(f"Entry hash: {entry_hash}")
+
+    # Get user info to retrieve private key
+    user_info_response = client.get_user_info()
+    if user_info_response.status_code != 200:
+        print("Error: Failed to get user info")
+        return
+
+    user_info = user_info_response.json()
+    encrypted_blob = user_info.get("private_key_blob")
+
+    if not encrypted_blob:
+        print("Error: No private key found for user")
+        return
+
+    # Prompt for password to decrypt private key
+    import getpass
+    password = getpass.getpass("Enter your password to sign verification: ")
+
+    print("Decrypting private key...")
+    from crypto import KeyManager
+    km = KeyManager()
+    try:
+        km.decrypt_blob(encrypted_blob, password)
+    except Exception as e:
+        print(f"Error: Failed to decrypt private key. Wrong password? {e}")
+        return
+
+    # Sign the entry hash
+    print("Signing entry hash...")
+    try:
+        signature = km.sign_data(entry_hash)
+        print(f"Signature generated: {signature[:50]}...")
+    except Exception as e:
+        print(f"Error: Failed to sign data: {e}")
+        return
+
+    # Submit verification
+    print("Submitting verification...")
+    response = client.add_audit_verification(signature)
     handle_response(response, "Verification added to audit log")
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -610,7 +823,8 @@ Examples:
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    config_parser = subparsers.add_parser("config", help="Configure client settings")
+    config_parser = subparsers.add_parser(
+        "config", help="Configure client settings")
     config_sub = config_parser.add_subparsers(dest="action")
     config_set = config_sub.add_parser("set-server", help="Set server URL")
     config_set.add_argument("url", help="Server URL")
@@ -626,18 +840,23 @@ Examples:
     org_create.add_argument("--admin", required=True, help="Admin username")
     org_create.set_defaults(func=cmd_org_create)
 
-    activate_parser = subparsers.add_parser("activate", help="Activate user account (generates RSA-4096 keys)")
+    activate_parser = subparsers.add_parser(
+        "activate", help="Activate user account (generates RSA-4096 keys)")
     activate_parser.add_argument("--username", required=True, help="Username")
-    activate_parser.add_argument("--code", required=True, help="Activation code")
-    activate_parser.add_argument("--password", required=True, help="Password (also used to encrypt private key)")
+    activate_parser.add_argument(
+        "--code", required=True, help="Activation code")
+    activate_parser.add_argument(
+        "--password", required=True, help="Password (also used to encrypt private key)")
     activate_parser.set_defaults(func=cmd_activate)
 
-    login_parser = subparsers.add_parser("login", help="Login to get JWT token")
+    login_parser = subparsers.add_parser(
+        "login", help="Login to get JWT token")
     login_parser.add_argument("--username", required=True, help="Username")
     login_parser.add_argument("--password", required=True, help="Password")
     login_parser.set_defaults(func=cmd_login)
 
-    logout_parser = subparsers.add_parser("logout", help="Logout and clear token")
+    logout_parser = subparsers.add_parser(
+        "logout", help="Logout and clear token")
     logout_parser.set_defaults(func=cmd_logout)
 
     dept_parser = subparsers.add_parser("dept", help="Department management")
@@ -648,7 +867,8 @@ Examples:
     dept_list = dept_sub.add_parser("list", help="List departments")
     dept_list.set_defaults(func=cmd_dept_list)
     dept_delete = dept_sub.add_parser("delete", help="Delete department")
-    dept_delete.add_argument("--id", type=int, required=True, help="Department ID")
+    dept_delete.add_argument(
+        "--id", type=int, required=True, help="Department ID")
     dept_delete.set_defaults(func=cmd_dept_delete)
 
     user_parser = subparsers.add_parser("user", help="User management")
@@ -663,7 +883,8 @@ Examples:
     user_delete.set_defaults(func=cmd_user_delete)
     user_info = user_sub.add_parser("info", help="Get current user info")
     user_info.set_defaults(func=cmd_user_info)
-    user_passwd = user_sub.add_parser("update-password", help="Update password")
+    user_passwd = user_sub.add_parser(
+        "update-password", help="Update password")
     user_passwd.add_argument("--password", required=True, help="New password")
     user_passwd.set_defaults(func=cmd_user_update_password)
 
@@ -677,22 +898,32 @@ Examples:
     role_revoke.add_argument("--token-id", type=int, required=True, help="Role token ID (use 'user list' to see token IDs)")
     role_revoke.set_defaults(func=cmd_role_revoke)
 
-    clearance_parser = subparsers.add_parser("clearance", help="Clearance management")
+    clearance_parser = subparsers.add_parser(
+        "clearance", help="Clearance management")
     clearance_sub = clearance_parser.add_subparsers(dest="action")
-    clearance_assign = clearance_sub.add_parser("assign", help="Assign clearance to user")
-    clearance_assign.add_argument("--user-id", type=int, required=True, help="User ID")
-    clearance_assign.add_argument("--level", required=True, choices=["Unclassified", "Confidential", "Secret", "Top Secret"], help="Clearance level")
-    clearance_assign.add_argument("--departments", help="Comma-separated department names")
-    clearance_assign.add_argument("--expires-at", default="2025-12-31", help="Expiration date (YYYY-MM-DD)")
+    clearance_assign = clearance_sub.add_parser(
+        "assign", help="Assign clearance to user")
+    clearance_assign.add_argument(
+        "--user-id", type=int, required=True, help="User ID")
+    clearance_assign.add_argument("--level", required=True, choices=[
+                                  "Unclassified", "Confidential", "Secret", "Top Secret"], help="Clearance level")
+    clearance_assign.add_argument(
+        "--departments", help="Comma-separated department names (not needed for organizational clearances)")
+    clearance_assign.add_argument(
+        "--expires-at", default="2025-12-31", help="Expiration date (YYYY-MM-DD)")
+    clearance_assign.add_argument(
+        "--organizational", action="store_true", help="Grant organizational clearance (access to all departments)")
     clearance_assign.set_defaults(func=cmd_clearance_assign)
     clearance_get = clearance_sub.add_parser("get", help="Get user clearances")
-    clearance_get.add_argument("--user-id", type=int, required=True, help="User ID")
+    clearance_get.add_argument(
+        "--user-id", type=int, required=True, help="User ID")
     clearance_get.set_defaults(func=cmd_clearance_get)
     clearance_revoke = clearance_sub.add_parser("revoke", help="Revoke clearance token")
     clearance_revoke.add_argument("--token-id", type=int, required=True, help="Clearance token ID (use 'user list' to see token IDs)")
     clearance_revoke.set_defaults(func=cmd_clearance_revoke)
 
-    transfer_parser = subparsers.add_parser("transfer", help="File transfer management")
+    transfer_parser = subparsers.add_parser(
+        "transfer", help="File transfer management")
     transfer_sub = transfer_parser.add_subparsers(dest="action")
 
     # User-specific upload - no classification/departments needed
@@ -712,31 +943,44 @@ Examples:
     transfer_list = transfer_sub.add_parser("list", help="List transfers")
     transfer_list.set_defaults(func=cmd_transfer_list)
     transfer_get = transfer_sub.add_parser("get", help="Get transfer info")
-    transfer_get.add_argument("--id", type=int, required=True, help="Transfer ID")
-    transfer_get.add_argument("--justification", help="Justification for trusted officer access")
+    transfer_get.add_argument(
+        "--id", type=int, required=True, help="Transfer ID")
+    transfer_get.add_argument(
+        "--justification", help="Justification for trusted officer access")
     transfer_get.set_defaults(func=cmd_transfer_get)
-    transfer_download = transfer_sub.add_parser("download", help="Download transfer file")
-    transfer_download.add_argument("--id", type=int, required=True, help="Transfer ID")
-    transfer_download.add_argument("--output", help="Output file path (default: uses server-generated UUID)")
-    transfer_download.add_argument("--justification", help="Justification for trusted officer access")
+    transfer_download = transfer_sub.add_parser(
+        "download", help="Download transfer file")
+    transfer_download.add_argument(
+        "--id", type=int, required=True, help="Transfer ID")
+    transfer_download.add_argument(
+        "--output", help="Output file path (default: uses server-generated UUID)")
+    transfer_download.add_argument(
+        "--justification", help="Justification for trusted officer access")
     transfer_download.set_defaults(func=cmd_transfer_download)
     transfer_delete = transfer_sub.add_parser("delete", help="Delete transfer")
-    transfer_delete.add_argument("--id", type=int, required=True, help="Transfer ID")
+    transfer_delete.add_argument(
+        "--id", type=int, required=True, help="Transfer ID")
     transfer_delete.set_defaults(func=cmd_transfer_delete)
-    transfer_public = transfer_sub.add_parser("download-public", help="Download public transfer (no auth required)")
-    transfer_public.add_argument("--url", required=True, help="Public URL with key in fragment (e.g., https://server/api/public/TOKEN#KEY)")
-    transfer_public.add_argument("--output", help="Output file path (default: uses public token from URL)")
+    transfer_public = transfer_sub.add_parser(
+        "download-public", help="Download public transfer (no auth required)")
+    transfer_public.add_argument(
+        "--url", required=True, help="Public URL with key in fragment (e.g., https://server/api/public/TOKEN#KEY)")
+    transfer_public.add_argument(
+        "--output", help="Output file path (default: uses public token from URL)")
     transfer_public.set_defaults(func=cmd_transfer_download_public)
 
     audit_parser = subparsers.add_parser("audit", help="Audit log management")
     audit_sub = audit_parser.add_subparsers(dest="action")
     audit_log = audit_sub.add_parser("log", help="View audit log")
     audit_log.set_defaults(func=cmd_audit_log)
-    audit_verify = audit_sub.add_parser("verify", help="Verify audit chain integrity")
+    audit_verify = audit_sub.add_parser(
+        "verify", help="Verify audit chain integrity")
     audit_verify.set_defaults(func=cmd_audit_verify)
-    audit_validate = audit_sub.add_parser("validate", help="Add verification to audit log")
-    audit_validate.add_argument("--entry-id", type=int, required=True, help="Entry ID")
-    audit_validate.add_argument("--signature", required=True, help="Signature")
+    audit_verifications = audit_sub.add_parser(
+        "verifications", help="View all audit verifications history")
+    audit_verifications.set_defaults(func=cmd_audit_verifications)
+    audit_validate = audit_sub.add_parser(
+        "validate", help="Add verification to audit log (signs with your private key)")
     audit_validate.set_defaults(func=cmd_audit_validate)
 
     # Enable tab completion if argcomplete is available
@@ -753,6 +997,7 @@ Examples:
         args.func(args)
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()
