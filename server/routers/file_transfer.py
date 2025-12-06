@@ -173,11 +173,11 @@ async def download_public_transfer(
         raise HTTPException(status_code=404, detail="Transfer file not found")
 
     file_content, file_name, strategy, nonce = result
-
+    metadata = TransferService.get_transfer_metadata(db, transfer.id)
     return StreamingResponse(
         io.BytesIO(file_content),
         media_type="application/octet-stream",
-        headers={"Content-Disposition": 'attachment; filename="encrypted_file.enc"', "strategy" : strategy, "nonce" : nonce}
+        headers={"Content-Disposition": 'attachment; filename="encrypted_file.enc"', "metadata" : json.dumps(metadata) }
     )
 
 
@@ -210,11 +210,12 @@ async def download_transfer(
         raise HTTPException(status_code=404, detail="Transfer file not found")
 
     file_content, file_name, strategy, nonce = result
+    metadata = TransferService.get_transfer_metadata(db, transfer_id)
 
     AuditService.log_action(db, user.id, "DOWNLOAD_TRANSFER", {"transfer_id": transfer_id})
 
     return StreamingResponse(
         io.BytesIO(file_content),
         media_type="application/octet-stream",
-        headers={"Content-Disposition": 'attachment; filename="encrypted_file.enc"', "strategy" : strategy, "nonce" : nonce}
+        headers={"Content-Disposition": 'attachment; filename="encrypted_file.enc"', "metadata": json.dumps(metadata)}
     )

@@ -278,6 +278,89 @@ class TransferService:
         return content, transfer.original_filename, transfer.strategy, transfer.nonce
 
     @staticmethod
+    def get_transfer_metadata(db: Session, transfer_id: int):
+        """
+        Return metadata for a transfer in the exact format expected by the client.
+        Format:
+            metadata = {
+                'classification_level': classification_level,
+                'departments': json.dumps(departments),
+                'expiration_days': str(expiration_days),
+                'transfer_mode': transfer_mode,
+                'recipients': json.dumps(encoded_recipients),
+                'nonce' : base64.b64encode(nonce).decode("ascii"),
+                'strategy' : strategy
+            }
+
+        Notes: This method builds a best-effort metadata payload using values stored
+        in the database. Some fields (like expiration_days, transfer_mode, recipients)
+        are only available at creation-time; when not available we fall back to
+        reasonable defaults or empty values to preserve the client's expected shape.
+        """
+        from sqlalchemy.orm import Session as _Session
+        # Import json locally to avoid top-level dependency changes
+        import json as _json
+
+        transfer = db.query(Transfer, ClearanceLevel).join(
+            ClearanceLevel, Transfer.classification_level_id == ClearanceLevel.id
+        ).filter(Transfer.id == transfer_id).first()
+
+        if not transfer:
+            return None
+
+        transfer_obj, classification = transfer
+
+        # departments stored in join table
+        departments_rows = db.execute(
+            text("SELECT d.label FROM departments d "
+                 "JOIN transfer_department td ON d.id = td.department_id "
+                 "WHERE td.transfer_id = :transfer_id"),
+            {"transfer_id": transfer_id}
+        ).fetchall()
+
+        departments = [d[0] for d in departments_rows]
+
+        # expiration_days is not stored explicitly; try to compute from created_at and expiration_time
+        expiration_days = ""
+        if transfer_obj.expiration_time and transfer_obj.created_at:
+            try:
+                delta = transfer_obj.expiration_time - transfer_obj.created_at
+                # Use ceiling of days to avoid off-by-one when partial days exist
+                total_seconds = delta.total_seconds()
+                days = int((total_seconds + 86399) // 86400)  # ceil without math.ceil
+                expiration_days = str(days)
+            except Exception:
+                expiration_days = ""
+
+        # transfer_mode and recipients are not stored for non-public transfers in current schema
+        transfer_mode = "public" if transfer_obj.public_access_token else "user"
+
+        # recipients: we'll try to list the user_ids that have TransferKey entries and encode as base64 keys placeholder
+        encoded_recipients = {}
+        try:
+            rows = db.execute(text("SELECT user_id, encrypted_key FROM transfer_keys WHERE transfer_id = :transfer_id"), {"transfer_id": transfer_id}).fetchall()
+            for user_id, encrypted_key in rows:
+                # encrypted_key is binary; base64-encode to ascii for JSON transport
+                encoded_recipients[user_id] = base64.b64encode(encrypted_key).decode("ascii")
+        except Exception:
+            encoded_recipients = {}
+
+        # nonce stored in DB — return exactly as stored so metadata matches what client used
+        nonce_field = transfer_obj.nonce if transfer_obj.nonce is not None else ""
+
+        metadata = {
+            'classification_level': classification.label,
+            'departments': _json.dumps(departments),
+            'expiration_days': expiration_days,
+            'transfer_mode': transfer_mode,
+            'recipients': _json.dumps(encoded_recipients),
+            'nonce': nonce_field,
+            'strategy': transfer_obj.strategy
+        }
+
+        return metadata
+
+    @staticmethod
     def delete_transfer(db: Session, transfer_id: int, user_id: int):
         transfer = db.query(Transfer).filter(
             Transfer.id == transfer_id,

@@ -310,11 +310,18 @@ def cmd_transfer_download(args):
         return
 
     encrypted_file_data = response.content
-
+    metadata = json.loads(response.headers["metadata"])
     # Decrypt file
     print("Decrypting file...")
-    try:
-        decrypted_file_data = km.decrypt_file_fernet(encrypted_file_data, file_key)
+    km = KeyManager()
+    strategy = metadata["strategy"]
+    nonce = base64.b64decode(metadata["nonce"])
+   
+    try:    
+        if strategy == "GCM":
+            decrypted_file_data = km.decrypt_file_gcm(file_key, nonce, encrypted_file_data, metadata)
+        elif strategy == "XChaCha":
+            decrypted_file_data = km.decrypt_file_xshasha(file_key, nonce, encrypted_file_data, metadata)
     except Exception as e:
         print(f"Error: Failed to decrypt file: {e}")
         sys.exit(1)
@@ -380,6 +387,7 @@ def cmd_transfer_download_public(args):
             sys.exit(1)
 
         encrypted_file_data = response.content
+        metadata = json.loads(response.headers["metadata"])
     except Exception as e:
         print(f"Error downloading file: {e}")
         sys.exit(1)
@@ -387,11 +395,13 @@ def cmd_transfer_download_public(args):
     # Decrypt file
     print("Decrypting file...")
     km = KeyManager()
-    try:
-        decrypted_file_data = km.decrypt_file_fernet(encrypted_file_data, file_key)
-    except Exception as e:
-        print(f"Error: Failed to decrypt file: {e}")
-        sys.exit(1)
+    strategy = metadata["strategy"]
+    nonce = base64.b64decode(metadata["nonce"])
+    print("Strategy:", strategy, "nonce:", nonce, "metadata:", metadata)
+    if strategy == "GCM":
+        decrypted_file_data = km.decrypt_file_gcm(file_key, nonce, encrypted_file_data, metadata)
+    elif strategy == "XChaCha":
+        decrypted_file_data = km.decrypt_file_xshasha(file_key, nonce, encrypted_file_data, metadata)
 
     # Determine output filename
     if args.output:

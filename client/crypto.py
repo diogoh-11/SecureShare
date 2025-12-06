@@ -177,7 +177,8 @@ class KeyManager:
 
     def encrypt_file_xshasha(self, file_data: bytes, file_key: bytes, nonce : bytes, metadata : Dict[str, Any]) -> bytes:
         """Encrypt file data with symmetric key"""
-        aad = json.dumps(metadata).encode()
+        ordered_metadata = dict(sorted(metadata.items()))
+        aad = json.dumps(ordered_metadata).encode()
         chacha = ChaCha20Poly1305(file_key)
         
         ct = chacha.encrypt(nonce, file_data, aad)
@@ -185,7 +186,8 @@ class KeyManager:
 
     def decrypt_file_xshasha(self, file_key : bytes, nonce : bytes, ciphertext : bytes, metadata : Dict[str, Any]) -> bytes:
         """Decrypt file data with symmetric key"""
-        aad = json.dumps(metadata).encode()
+        ordered_metadata = dict(sorted(metadata.items()))
+        aad = json.dumps(ordered_metadata).encode()
         chacha = ChaCha20Poly1305(file_key)
         plaintext = chacha.decrypt(nonce, ciphertext, aad)
         return plaintext
@@ -193,13 +195,16 @@ class KeyManager:
     def encrypt_file_gcm(self, file_data : bytes, file_key: bytes, nonce : bytes, metadata : Dict[str, Any]) -> bytes:
     
         aes = AESGCM(file_key)
-        
-        ct = aes.encrypt(nonce, file_data, json.dumps(metadata).encode())
+        ordered_metadata = dict(sorted(metadata.items()))
+        print(ordered_metadata)
+        ct = aes.encrypt(nonce, file_data, json.dumps(ordered_metadata).encode())
 
         return ct
 
     def decrypt_file_gcm(self, file_key : bytes, nonce : bytes, ciphertext : bytes, metadata : Dict[str, Any]) -> bytes:
         aes = AESGCM(file_key)
-        plaintext = aes.decrypt(nonce, ciphertext, json.dumps(metadata).encode())
+        ordered_metadata = dict(sorted(metadata.items()))
+        print(ordered_metadata)
+        plaintext = aes.decrypt(nonce, ciphertext, json.dumps(ordered_metadata).encode())
         return plaintext 
 
