@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 import base64
 import os
 
+
 class KeyManager:
     """Manages asymmetric RSA and symmetric AES keys"""
 
@@ -50,7 +51,7 @@ class KeyManager:
 
         return public_pem, private_der
 
-    def encrypt_with_public_key(self,file_key: bytes, public_key_pem: str) -> bytes:
+    def encrypt_with_public_key(self, file_key: bytes, public_key_pem: str) -> bytes:
         """
         Encrypts a symmetric file_key using an RSA public key (PEM format).
         Returns encrypted bytes.
@@ -208,3 +209,55 @@ class KeyManager:
         plaintext = aes.decrypt(nonce, ciphertext, json.dumps(ordered_metadata).encode())
         return plaintext 
 
+
+    def sign_data(self, data: str) -> str:
+        """
+        Sign data with private key using RSA-PSS + SHA256
+        Args:
+            data: String to sign (e.g., entry hash)
+        Returns:
+            Base64-encoded signature
+        """
+        if not self.private_key:
+            raise ValueError("Private key not loaded")
+
+        signature = self.private_key.sign(
+            data.encode('utf-8'),
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+        return base64.b64encode(signature).decode('utf-8')
+
+    def verify_signature(self, data: str, signature_b64: str, public_key_pem: str) -> bool:
+        """
+        Verify signature with public key
+        Args:
+            data: Original data that was signed
+            signature_b64: Base64-encoded signature
+            public_key_pem: Public key in PEM format
+        Returns:
+            True if signature is valid
+        """
+        public_key = serialization.load_pem_public_key(
+            public_key_pem.encode('utf-8'),
+            backend=default_backend()
+        )
+
+        signature = base64.b64decode(signature_b64)
+
+        try:
+            public_key.verify(
+                signature,
+                data.encode('utf-8'),
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+            return True
+        except Exception:
+            return False

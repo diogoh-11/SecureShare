@@ -1,3 +1,4 @@
+from sqlite3 import Date
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, LargeBinary, Table
 import time
 from datetime import datetime
@@ -135,7 +136,11 @@ class RoleToken(Base):
     id = Column(Integer, primary_key=True, index=True)
     role_id = Column(Integer, ForeignKey('roles.id') ,nullable=False)
     signature = Column(LargeBinary, nullable=False)
+    
+    # For Audit Log necessity
+    created_at = Column(DateTime, default=lambda: datetime.now(), nullable= False)
     expires_at = Column(DateTime)
+
     target_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     issuer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
 
@@ -144,6 +149,9 @@ class RoleRevocation(Base):
     __tablename__ = 'role_revocations'
 
     role_token_id = Column(Integer, ForeignKey('role_tokens.id'), primary_key=True)
+
+    #For Audit log necessity
+    revoked_at = Column(DateTime, default=lambda: datetime.now(), nullable= False)
     revoker_id = Column(Integer, ForeignKey('users.id'), nullable=False)
 
 
@@ -152,6 +160,8 @@ class ClearanceRevocation(Base):
 
     clearance_token_id = Column(Integer, ForeignKey('clearance_tokens.id'), primary_key=True)
     revoker_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+
+    #For Audit log necessity
     revoked_at = Column(DateTime, default=lambda: datetime.now())
 
 
@@ -159,7 +169,11 @@ class ClearanceToken(Base):
     __tablename__ = 'clearance_tokens'
 
     id = Column(Integer, primary_key=True, index=True)
+
+    #For Audit necessity
+    created_at = Column(DateTime, default=lambda: datetime.now(), nullable= False)
     expiration_time = Column(DateTime)
+
     is_organizational = Column(Boolean, default=False)
     issuer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
