@@ -16,7 +16,7 @@ echo -e "${CYAN}╔════════════════════�
 echo -e "${CYAN}║  Audit Log Tampering Detection Test       ║${NC}"
 echo -e "${CYAN}╔════════════════════════════════════════════╗${NC}\n"
 
-CLI="./client/sshare"
+CLI="./sshare"
 
 if [ ! -f "$CLI" ]; then
     echo -e "${RED}Error: CLI not found${NC}"
@@ -62,7 +62,7 @@ echo -e "${BLUE}═══ PHASE 2: Selecting Entry to Tamper ═══${NC}\n"
 # Get entry count
 echo -e "${YELLOW}Querying database for entries...${NC}"
 ENTRY_COUNT=$(
-    sudo docker exec sshare-server-container \
+    sudo docker exec secureshare-server \
         sqlite3 /app/sshare.db "SELECT COUNT(*) FROM audit_log;" \
         2>/dev/null | tr -d '\r'
 )
@@ -83,7 +83,7 @@ echo -e "${GREEN}Target entry for tampering: #$TARGET_ENTRY${NC}\n"
 
 # Show original entry
 echo -e "${YELLOW}Original Entry #$TARGET_ENTRY:${NC}"
-ENTRY_INFO=$(sudo docker exec sshare-server-container \
+ENTRY_INFO=$(sudo docker exec secureshare-server \
     sqlite3 /app/sshare.db \
     "SELECT id || '|' || action || '|' || entryHash || '|' || previousHash FROM audit_log WHERE id = $TARGET_ENTRY;" \
     2>/dev/null | tr -d '\r')
@@ -111,7 +111,7 @@ echo -e "${RED}⚠️  TAMPERING ALERT ⚠️${NC}"
 echo -e "${RED}Simulating malicious actor modifying entry #$TARGET_ENTRY...${NC}\n"
 
 # Get original action
-ORIGINAL_ACTION=$(sudo docker exec sshare-server-container \
+ORIGINAL_ACTION=$(sudo docker exec secureshare-server \
     sqlite3 /app/sshare.db \
     "SELECT action FROM audit_log WHERE id = $TARGET_ENTRY;" \
     2>/dev/null | tr -d '\r')
@@ -122,7 +122,7 @@ echo "  $ORIGINAL_ACTION"
 # Tamper with the action field
 TAMPERED_ACTION="TAMPERED_ENTRY: Malicious actor changed this at $(date '+%Y-%m-%d %H:%M:%S')"
 
-sudo docker exec sshare-server-container \
+sudo docker exec secureshare-server \
     sqlite3 /app/sshare.db \
     "UPDATE audit_log SET action = '$TAMPERED_ACTION' WHERE id = $TARGET_ENTRY;" \
     2>/dev/null
@@ -224,7 +224,7 @@ if [[ "$RESTORE" =~ ^[Yy]$ ]]; then
     # Escape single quotes in the original action for SQL
     ESCAPED_ACTION=$(echo "$ORIGINAL_ACTION" | sed "s/'/''/g")
 
-    sudo docker exec sshare-server-container \
+    sudo docker exec secureshare-server \
         sqlite3 /app/sshare.db \
         "UPDATE audit_log SET action = '$ESCAPED_ACTION' WHERE id = $TARGET_ENTRY;" \
         2>/dev/null
@@ -270,7 +270,7 @@ if [[ "$TEST_HASH" =~ ^[Yy]$ ]]; then
     echo -e "${RED}Modifying entryHash of entry #$HASH_TARGET...${NC}\n"
 
     # Get original hash
-    ORIGINAL_HASH=$(sudo docker exec sshare-server-container \
+    ORIGINAL_HASH=$(sudo docker exec secureshare-server \
         sqlite3 /app/sshare.db \
         "SELECT entryHash FROM audit_log WHERE id = $HASH_TARGET;" \
         2>/dev/null | tr -d '\r')
@@ -280,7 +280,7 @@ if [[ "$TEST_HASH" =~ ^[Yy]$ ]]; then
     # Create fake hash (modify a few characters)
     FAKE_HASH="${ORIGINAL_HASH:0:50}FAKEHASH${ORIGINAL_HASH:58}"
 
-    sudo docker exec sshare-server-container \
+    sudo docker exec secureshare-server \
         sqlite3 /app/sshare.db \
         "UPDATE audit_log SET entryHash = '$FAKE_HASH' WHERE id = $HASH_TARGET;" \
         2>/dev/null
@@ -315,7 +315,7 @@ if [[ "$TEST_HASH" =~ ^[Yy]$ ]]; then
 
     # Restore
     echo -e "\n${YELLOW}Restoring original hash...${NC}"
-    sudo docker exec sshare-server-container \
+    sudo docker exec secureshare-server \
         sqlite3 /app/sshare.db \
         "UPDATE audit_log SET entryHash = '$ORIGINAL_HASH' WHERE id = $HASH_TARGET;" \
         2>/dev/null
@@ -343,7 +343,7 @@ if [[ "$TEST_DELETE" =~ ^[Yy]$ ]]; then
     echo -e "${RED}Deleting entry #$DELETE_TARGET from audit log...${NC}\n"
 
     # Backup the entry before deleting
-    DELETED_ENTRY=$(sudo docker exec sshare-server-container \
+    DELETED_ENTRY=$(sudo docker exec secureshare-server \
         sqlite3 /app/sshare.db \
         "SELECT id, timestamp, action, actor_id, previousHash, entryHash FROM audit_log WHERE id = $DELETE_TARGET;" \
         2>/dev/null | tr -d '\r')
@@ -352,7 +352,7 @@ if [[ "$TEST_DELETE" =~ ^[Yy]$ ]]; then
     echo "  $DELETED_ENTRY"
 
     # Delete the entry
-    sudo docker exec sshare-server-container \
+    sudo docker exec secureshare-server \
         sqlite3 /app/sshare.db \
         "DELETE FROM audit_log WHERE id = $DELETE_TARGET;" \
         2>/dev/null

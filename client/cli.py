@@ -809,39 +809,6 @@ def main():
     parser = argparse.ArgumentParser(
         description="SecureShare CLI - Secure file transfer with MLS and RBAC",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Configuration
-  sshare config set-server https://localhost:8443
-  sshare config show                    # View current config including saved role/clearance
-  sshare config clear-role              # Clear saved acting role
-  sshare config clear-clearance         # Clear saved acting clearance
-
-  # Organization and user setup
-  sshare org create --name "ACME Corp" --admin admin
-  sshare activate --username admin --code CODE --password pass123
-  sshare login --username admin --password pass123
-
-  # Role management - use short names [ad, so, to, au, su] or full names
-  sshare user list --as ad                        # View users (using short "ad" for Administrator)
-  sshare user create --username alice --as ad     # Saves "Administrator"
-  sshare role assign --user-id 2 --role so        # Admin assigns Security Officer
-  sshare role assign --user-id 3 --role au --as so  # SO assigns Auditor
-  sshare role revoke --token-id 5 --as so        # Revoke role by token ID
-
-  # Clearances and transfers
-  sshare clearance assign --user-id 2 --level "Top Secret" --departments "Engineering,Finance" --as so
-  sshare clearance revoke --token-id 10 --as so  # Revoke by token ID
-
-  # User-specific transfer (no classification/MLS needed)
-  sshare transfer upload --files doc.pdf,report.xlsx --recipients 2,3
-
-  # Public transfer (requires classification and clearance)
-  sshare transfer upload-public --files doc.pdf --classification "Secret" --departments "Engineering" --with 15
-  sshare transfer download-public --url https://server/api/public/TOKEN#KEY --with 15
-
-  sshare audit log --as au                       # View audit log as Auditor
-        """
     )
 
     # Global arguments for specifying which role and clearance to act as

@@ -1,0 +1,28 @@
+#!/bin/bash
+IMAGE_NAME="sshare-client"
+
+# Check if image exists, if not suggest building
+if ! docker image inspect "$IMAGE_NAME" &> /dev/null; then
+    echo "Error: Client image not found. Please build it first:"
+    echo "  docker-compose build client"
+    exit 1
+fi
+
+CURRENT_DIR="$(pwd)"
+REL_PATH="${CURRENT_DIR#$HOME/}"
+
+# If we're inside $HOME, use relative path, otherwise mount current dir
+if [[ "$CURRENT_DIR" == "$HOME"* ]]; then
+    WORK_DIR="/home/user/$REL_PATH"
+else
+    WORK_DIR="/workspace"
+fi
+
+# Run client
+docker run --rm -it \
+    --network host \
+    -v "$HOME/.sshare:/root/.sshare" \
+    -v "$HOME:/home/user" \
+    -w "$WORK_DIR" \
+    --entrypoint "python3" \
+    "$IMAGE_NAME" /app/cli.py "$@"
