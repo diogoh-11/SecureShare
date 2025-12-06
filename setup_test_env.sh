@@ -18,7 +18,7 @@ echo -e "${BLUE}========================================${NC}\n"
 
 # Configuration
 SERVER_URL="https://localhost:8443"
-CLI="./client/sshare"
+CLI="./sshare"
 
 # Check if CLI exists
 if [ ! -f "$CLI" ]; then
