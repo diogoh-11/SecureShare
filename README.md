@@ -213,10 +213,29 @@ Need to act as *Trusted officer* or *Standard User*.
 
 #### Download public file (enforces MLS) 
 ```bash 
-./sshare --as <to or su> transfer download-public --url <url>
+./sshare --as <to or su>  --with <clearance_id> transfer download-public --url <url>
 ```
 
 #### Download user-specific files 
 ```bash 
 ./sshare --as su transfer download --id <transfer_id>
+```
+
+
+
+### See full chain of Audit Logs
+```bash
+./sshare --as au audit log
+```
+
+
+### Verify the full chain as an Auditor
+```bash
+./sshare --as au audit verify
+```
+
+
+### Validate 
+```bash
+./sshare --as au audit validate
 ```
