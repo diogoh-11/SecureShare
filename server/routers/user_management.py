@@ -14,6 +14,7 @@ from services.user_management_service import UserManagementService
 router = APIRouter(prefix="/users", tags=["User Management"])
 
 
+
 @router.post("")
 async def create_user(
     request: CreateUserRequest,
@@ -47,9 +48,42 @@ async def get_users(
     user_db: tuple = Depends(get_current_user),
     db: Session = Depends(require_role(["Administrator", "Security Officer"]))
 ):
+    """
+    Get all users with their roles and clearances.
+    Returns role_token_id:RoleName and clearances with dept:{clearance_token_id, clearance_label}
+    """
+    from services.clearance_service import RoleService, ClearanceService
+
     user, _ = user_db
     users = UserManagementService.get_all_users(db)
-    return [{"id": u.id, "username": u.username, "is_active": u.is_active} for u in users]
+
+    result = []
+    for u in users:
+        # Get user roles
+        roles = RoleService.get_user_roles(db, u.id)
+        role_list = [f"{r['id']}:{r['role']}" for r in roles if r['is_active']]
+
+        # Get user clearances with departments
+        clearances = ClearanceService.get_user_clearances(db, u.id)
+        clearance_list = []
+        for c in clearances:
+            if c['is_active']:
+                for dept in c['departments']:
+                    clearance_list.append({
+                        "dept": dept,
+                        "clearance_token_id": c['id'],
+                        "clearance_label": c['clearance_level']
+                    })
+
+        result.append({
+            "id": u.id,
+            "username": u.username,
+            "is_active": u.is_active,
+            "roles": role_list,
+            "clearances": clearance_list
+        })
+
+    return result
 
 
 @router.delete("/{user_id}")
@@ -81,10 +115,12 @@ async def update_user_role(
     from services.clearance_service import RoleService
     from services.audit_service import AuditService
     user, _ = user_db
-
+    #TODO: admin can only appoint security officers
+    #TODO: security officer points trusted officers and auditor
     try:
         role_token = RoleService.assign_role(
-            db, user.id, user_id, request.role, expires_in_days=365)
+            db, user.id, user_id, request.role,
+            request.signed_role_token, request.expires_at)
         AuditService.log_action(db, user.id, "ASSIGN_ROLE", {
                                 "target_user_id": user_id, "role": request.role})
 
@@ -131,12 +167,14 @@ async def add_user_clearance(
 
     try:
         clearance = ClearanceService.create_clearance_token(
-            db, user.id, user_id, request.clearance_level, request.departments
+            db, user.id, user_id, request.clearance_level,
+            request.departments, request.signed_token, request.expires_at,
+            request.is_organizational
         )
         AuditService.log_action(
             db, user.id, "ASSIGN_CLEARANCE",
             {"target_user_id": user_id, "level": request.clearance_level,
-                "departments": request.departments}
+                "departments": request.departments, "is_organizational": request.is_organizational}
         )
 
         return {
@@ -148,25 +186,60 @@ async def add_user_clearance(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.put("/{user_id}/revoke/{token_id}")
+@router.put("/role/revocation/{token_id}")
+async def revoke_user_role(
+    token_id: int,
+    user_db: tuple = Depends(get_current_user),
+    db: Session = Depends(require_role(["Security Officer", "Administrator"]))
+):
+    """
+    Revoke a user's privileged role by token ID.
+    User will revert to Standard User (which everyone has by default).
+    """
+    from services.clearance_service import RoleService
+    from services.audit_service import AuditService
+    from models.models import RoleToken
+    user, _ = user_db
+
+    try:
+        # Get the role token to find target user for audit
+        role_token = db.query(RoleToken).filter(RoleToken.id == token_id).first()
+        target_user_id = role_token.target_id if role_token else None
+
+        RoleService.revoke_role(db, user.id, token_id)
+        AuditService.log_action(db, user.id, "REVOKE_ROLE", {
+            "target_user_id": target_user_id,
+            "role_token_id": token_id
+        })
+
+        return {"success": True, "message": "Role revoked"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/clearance/revocation/{token_id}")
 async def revoke_clearance(
-    user_id: int,
     token_id: int,
     user_db: tuple = Depends(get_current_user),
     db: Session = Depends(require_role(["Security Officer"]))
 ):
     """
-    Revoke a clearance token.
-    Note: To revoke a role, use PUT /users/{user_id}/role with role="Standard User"
+    Revoke a clearance token by token ID.
     """
     from services.clearance_service import ClearanceService
     from services.audit_service import AuditService
+    from models.models import ClearanceToken
     user, _ = user_db
 
     try:
+        # Get the clearance token to find target user for audit
+        clearance_token = db.query(ClearanceToken).filter(ClearanceToken.id == token_id).first()
+        target_user_id = clearance_token.user_id if clearance_token else None
+
         ClearanceService.revoke_clearance(db, user.id, token_id)
         AuditService.log_action(db, user.id, "REVOKE_CLEARANCE", {
-            "user_id": user_id, "clearance_token_id": token_id
+            "user_id": target_user_id,
+            "clearance_token_id": token_id
         })
 
         return {"success": True, "message": "Clearance revoked"}
@@ -194,7 +267,6 @@ async def upload_vault(
     user_db: tuple = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    from models.models import User
     user, _ = user_db
 
     user.private_key_blob = request.encrypted_private_key_blob.encode('utf-8')
@@ -221,10 +293,11 @@ async def get_current_user_info(
     user_db: tuple = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    from services.clearance_service import RoleService
+    from services.clearance_service import RoleService, ClearanceService
     user, _ = user_db
 
     roles = RoleService.get_user_roles(db, user.id)
+    clearances = ClearanceService.get_user_clearances(db, user.id)
 
     return {
         "id": user.id,
@@ -232,6 +305,7 @@ async def get_current_user_info(
         "is_active": user.is_active,
         "organization_id": user.organization_id,
         "roles": roles,
+        "clearances": clearances,
         "private_key_blob": user.private_key_blob.decode() if user.private_key_blob else None,
         "public_key": user.public_key.decode() if user.public_key else None
     }

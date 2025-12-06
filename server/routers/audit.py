@@ -9,17 +9,14 @@ router = APIRouter(prefix="/audit", tags=["Audit"])
 
 @router.get("/log")
 async def get_audit_log(
-    user_db: tuple = Depends(get_current_user),
     db: Session = Depends(require_role(["Auditor"]))
 ):
-    user, _ = user_db
     audit_log = AuditService.get_audit_log(db)
     return {"entries": audit_log}
 
 
 @router.get("/verify")
 async def verify_audit_chain(
-    user_db: tuple = Depends(get_current_user),
     db: Session = Depends(require_role(["Auditor"]))
 ):
     """
@@ -31,7 +28,6 @@ async def verify_audit_chain(
     - Testing and debugging
     - Detecting if old entries were tampered with after being signed
     """
-    user, _ = user_db
     # Full verification (no from_entry_id)
     result = AuditService.verify_chain(db)
     return result

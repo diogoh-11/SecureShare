@@ -51,7 +51,7 @@ class AuthService:
             password.encode(), bcrypt.gensalt()).decode()
         user.is_active = True
 
-        # store cryptographic keys (required)
+        # store cryptographic keys
         user.public_key = public_key.encode('utf-8')
         user.private_key_blob = private_key_blob.encode('utf-8')
 
@@ -67,7 +67,7 @@ class AuthService:
             from services.organization_service import OrganizationService
             try:
                 OrganizationService.finalize_admin_role(
-                    self.db, user.id, organization.id)
+                    self.db, user.id)
                 print(
                     f"[DEBUG] Granted admin role for organization {organization.id} to user {user.id}")
             except Exception as e:
@@ -95,8 +95,7 @@ class AuthService:
         # Generate cryptographically secure session token (64 bytes = 128 hex chars)
         session_token = secrets.token_urlsafe(64)
 
-        # Session expires in 8 hours
-        session_expiry = int(time.time()) + (8 * 3600)
+        session_expiry = int(time.time()) + (1 * 3600)
 
         # Create session in database
         session = Session(
@@ -109,7 +108,7 @@ class AuthService:
         self.db.add(session)
         self.db.commit()
 
-        print(f"[INFO] Created session for user {username} (expires in 8 hours)")
+        print(f"[INFO] Created session for user {username} (expires in 1 hours)")
 
         return {
             "success": True,

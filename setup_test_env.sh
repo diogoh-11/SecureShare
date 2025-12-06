@@ -88,7 +88,7 @@ sleep 1
 
 echo -e "${YELLOW}Step 5: Create Departments${NC}"
 echo "Creating Engineering department..."
-$CLI dept create --name Engineering
+$CLI --as ad dept create --name Engineering
 echo -e "${GREEN}✓ Engineering department created${NC}"
 
 sleep 0.5
@@ -98,6 +98,55 @@ $CLI dept create --name Security
 echo -e "${GREEN}✓ Security department created${NC}\n"
 
 sleep 1
+
+echo -e "${YELLOW}Step 6: Create First Security Officer User${NC}"
+echo "Username: alice_security"
+
+ALICE_OUTPUT=$($CLI user create --username alice_security 2>&1)
+
+# Extract activation code from "IMPORTANT: Save this activation code: XXX" line
+ALICE_CODE=$(echo "$ALICE_OUTPUT" | grep "IMPORTANT:" | sed -n 's/.*activation code: \([A-Za-z0-9_-]*\).*/\1/p')
+if [ -z "$ALICE_CODE" ]; then
+    # Fallback: try JSON format
+    ALICE_CODE=$(echo "$ALICE_OUTPUT" | grep '"activation_code"' | sed -n 's/.*"activation_code": *"\([^"]*\)".*/\1/p')
+fi
+
+# Extract user ID from JSON
+ALICE_ID=$(echo "$ALICE_OUTPUT" | grep '"user_id"' | sed -n 's/.*"user_id": *\([0-9]*\).*/\1/p')
+
+if [ -z "$ALICE_CODE" ] || [ -z "$ALICE_ID" ]; then
+    echo -e "${RED}✗ Failed to extract Alice info${NC}"
+    echo "$ALICE_OUTPUT"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ Alice created (ID: $ALICE_ID, Code: $ALICE_CODE)${NC}\n"
+
+sleep 0.5
+
+echo -e "${YELLOW}Step 7: Activate Security Officer${NC}"
+ACTIVATE_ALICE=$($CLI activate \
+    --username alice_security \
+    --code "$ALICE_CODE" \
+    --password alice123 2>&1)
+
+if echo "$ACTIVATE_ALICE" | grep -q "success"; then
+    echo -e "${GREEN}✓ Alice activated${NC}\n"
+else
+    echo -e "${YELLOW}⚠ Alice activation may have failed${NC}\n"
+fi
+
+echo -e "${YELLOW}Step 0000: Assign so Role to Alice${NC}"
+ASSIGN_ALICE=$($CLI role assign --user-id "$ALICE_ID" --role so)
+if echo "$ASSIGN_ALICE" | grep -q "success\|assigned"; then
+    echo -e "${GREEN}✓ Alice now has so role${NC}\n"
+else
+    echo -e "${YELLOW}⚠ Role assignment may have failed${NC}\n"
+fi
+
+sleep 1
+
+
 
 echo -e "${YELLOW}Step 6: Create First Auditor User${NC}"
 echo "Username: alice_auditor"
@@ -124,7 +173,7 @@ echo -e "${GREEN}✓ Alice created (ID: $ALICE_ID, Code: $ALICE_CODE)${NC}\n"
 
 sleep 0.5
 
-echo -e "${YELLOW}Step 7: Activate Alice${NC}"
+echo -e "${YELLOW}Step 7: Activate Alice_Auditor${NC}"
 ACTIVATE_ALICE=$($CLI activate \
     --username alice_auditor \
     --code "$ALICE_CODE" \
@@ -134,16 +183,6 @@ if echo "$ACTIVATE_ALICE" | grep -q "success"; then
     echo -e "${GREEN}✓ Alice activated${NC}\n"
 else
     echo -e "${YELLOW}⚠ Alice activation may have failed${NC}\n"
-fi
-
-sleep 1
-
-echo -e "${YELLOW}Step 8: Assign Auditor Role to Alice${NC}"
-ASSIGN_ALICE=$($CLI role assign --user-id "$ALICE_ID" --role Auditor 2>&1)
-if echo "$ASSIGN_ALICE" | grep -q "success\|assigned"; then
-    echo -e "${GREEN}✓ Alice now has Auditor role${NC}\n"
-else
-    echo -e "${YELLOW}⚠ Role assignment may have failed${NC}\n"
 fi
 
 sleep 1
@@ -184,15 +223,7 @@ fi
 
 sleep 1
 
-echo -e "${YELLOW}Step 11: Assign Auditor Role to Bob${NC}"
-ASSIGN_BOB=$($CLI role assign --user-id "$BOB_ID" --role Auditor 2>&1)
-if echo "$ASSIGN_BOB" | grep -q "success\|assigned"; then
-    echo -e "${GREEN}✓ Bob now has Auditor role${NC}\n"
-else
-    echo -e "${YELLOW}⚠ Could not assign role to Bob (may already have it)${NC}\n"
-fi
 
-sleep 1
 
 echo -e "${YELLOW}Step 12: Create Regular User${NC}"
 echo "Username: charlie_user"
@@ -226,17 +257,54 @@ else
     echo -e "${YELLOW}⚠ Charlie activation may have failed${NC}\n"
 fi
 
+
 sleep 1
+
+echo -e "${YELLOW}Step 4: Login as Alice Security ${NC}"
+LOGIN_OUTPUT=$($CLI login --username alice_security --password alice123 2>&1)
+if echo "$LOGIN_OUTPUT" | grep -q "Token saved"; then
+    echo -e "${GREEN}✓ Admin logged in${NC}\n"
+else
+    echo -e "${RED}✗ Login failed${NC}"
+    echo "$LOGIN_OUTPUT"
+    exit 1
+fi
+
+
+
+echo -e "${YELLOW}Step 8: Assign Auditor Role to Alice${NC}"
+ASSIGN_ALICE=$($CLI --as so role assign --user-id "$ALICE_ID" --role Auditor)
+if echo "$ASSIGN_ALICE" | grep -q "success\|assigned"; then
+    echo -e "${GREEN}✓ Alice now has Auditor role${NC}\n"
+else
+    echo -e "${YELLOW}⚠ Role assignment may have failed${NC}\n"
+fi
+
+
+sleep 1
+
+
+echo -e "${YELLOW}Step 11: Assign Auditor Role to Bob${NC}"
+ASSIGN_BOB=$($CLI role assign --user-id "$BOB_ID" --role Auditor)
+if echo "$ASSIGN_BOB" | grep -q "success\|assigned"; then
+    echo -e "${GREEN}✓ Bob now has Auditor role${NC}\n"
+else
+    echo -e "${YELLOW}⚠ Could not assign role to Bob (may already have it)${NC}\n"
+fi
+
+sleep 1
+
+
 
 echo -e "${YELLOW}Step 14: View Audit Log (as Alice)${NC}"
 $CLI login --username alice_auditor --password alice123
-$CLI audit log
+$CLI --as au audit log
 echo -e "${GREEN}✓ Audit log retrieved${NC}\n"
 
 sleep 1
 
 echo -e "${YELLOW}Step 15: Verify Audit Chain (as Alice)${NC}"
-$CLI audit verify
+$CLI  audit verify
 echo -e "${GREEN}✓ Chain verified${NC}\n"
 
 sleep 1
@@ -251,7 +319,7 @@ echo -e "${YELLOW}Step 17: Back to Admin - Create More Entries${NC}"
 $CLI login --username admin --password admin123
 
 echo "Creating additional department..."
-$CLI dept create --name Research
+$CLI --as ad dept create --name Research
 echo -e "${GREEN}✓ Research department created${NC}\n"
 
 sleep 0.5
@@ -288,5 +356,3 @@ echo -e "     ${BLUE}UPDATE audit_log SET action = 'TAMPERED!' WHERE id = 5;${NC
 echo -e "  3. Then verify as auditor:"
 echo -e "     ${BLUE}./client/sshare login --username alice_auditor --password alice123${NC}"
 echo -e "     ${BLUE}./client/sshare audit verify${NC}\n"
-
-

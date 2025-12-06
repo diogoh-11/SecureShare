@@ -176,3 +176,4 @@ class ClearanceToken(Base):
     issuer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     clearance_level_id = Column(Integer, ForeignKey('clearance_levels.id'), nullable=False)
+    signature = Column(LargeBinary, nullable=False)
