@@ -88,6 +88,9 @@ class TransferService:
             db.commit()
             db.refresh(transfer)
 
+            with open(file_path, "wb") as f:
+                f.write(file_content)
+
             return {
                 "id": transfer.id,
                 "public_access_token": public_token,
@@ -115,6 +118,8 @@ class TransferService:
             recipient_ids.add(user_id)
             db.add(transfer_key)
 
+        if not recipient_ids:
+            raise ValueError("Cannot create user specific share without recipients")
 
         db.commit()
         db.refresh(transfer)
