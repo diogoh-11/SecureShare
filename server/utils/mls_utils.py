@@ -5,6 +5,20 @@ from typing import List, Set, Optional
 from datetime import datetime
 from enums import ClearanceLevelEnum
 
+def same_organization(user_id1: int, user_id2: int, db: Session) -> bool:
+    """
+    Check if two users belong to the same organization.
+    Returns True if both users exist and are in the same organization.
+    Returns False otherwise.
+    """
+    user1 = db.query(User).filter(User.id == user_id1).first()
+    user2 = db.query(User).filter(User.id == user_id2).first()
+
+    if not user1 or not user2:
+        return False
+
+    return user1.organization_id == user2.organization_id
+
 CLEARANCE_HIERARCHY = {
     ClearanceLevelEnum.UNCLASSIFIED: 0,
     ClearanceLevelEnum.CONFIDENTIAL: 1,

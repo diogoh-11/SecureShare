@@ -1,7 +1,8 @@
+from utils.mls_utils import same_organization
 from utils.rbac import role2user
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from models.models import ClearanceToken, Department, ClearanceLevel, User, RoleToken, Role, RoleRevocation, ClearanceRevocation
+from models.models import ClearanceToken, Department, ClearanceLevel, Organization, User, RoleToken, Role, RoleRevocation, ClearanceRevocation
 from datetime import datetime, timedelta
 from typing import List, Optional
 import json
@@ -30,16 +31,24 @@ class ClearanceService:
         if not clearance_obj:
             raise ValueError(f"Clearance level '{clearance_level}' not found")
 
-        user = db.query(User).filter(User.id == user_id).first()
+        user:User = db.query(User).filter(User.id == user_id).first()
         if not user:
             raise ValueError("User not found")
 
+        issuer:User= db.query(User).filter(User.id == issuer_id).first()
+        if not issuer:
+            raise ValueError("Issuer not found")
+
+        if not (issuer.organization_id == user.organization_id):
+            raise ValueError("Cannot assign clearance to a user of a different organization")
+
         department_objs = []
         for dept_label in departments:
-            dept = db.query(Department).filter(
+            dept:Department = db.query(Department).filter(
                 Department.label == dept_label).first()
-            if dept:
-                department_objs.append(dept)
+            if not (dept and dept.organization_id == issuer.organization_id):
+                raise ValueError(f"Department '{dept_label}' does not belong to your organization")
+            department_objs.append(dept)
 
         # Parse the expiration time from the request
         expiration = datetime.fromisoformat(expires_at_iso.replace('Z', '+00:00'))
@@ -133,12 +142,15 @@ class ClearanceService:
     @staticmethod
     def revoke_clearance(db: Session, revoker_id: int, clearance_token_id: int):
         """Revoke a clearance token"""
-        clearance_token = db.query(ClearanceToken).filter(
+        clearance_token:ClearanceToken = db.query(ClearanceToken).filter(
             ClearanceToken.id == clearance_token_id
         ).first()
 
         if not clearance_token:
             raise ValueError("Clearance token not found")
+
+        if not same_organization(revoker_id,clearance_token.user_id,db):
+            raise ValueError("Target user is from another organization")
 
         # Check if already revoked
         existing_revocation = db.query(ClearanceRevocation).filter(
@@ -191,6 +203,9 @@ class RoleService:
         target_user = db.query(User).filter(User.id == target_id).first()
         if not target_user:
             raise ValueError("Target user not found")
+
+        if not same_organization(target_id,issuer_id,db):
+            raise ValueError("Target user is from another organization")
 
         from utils.rbac import get_active_user_roles
         target_roles = get_active_user_roles(db, target_id)
@@ -262,7 +277,9 @@ class RoleService:
         if not role_token:
             raise ValueError("Role token not found")
 
-        _, role = role_token
+        role_token, role = role_token
+        if not same_organization(revoker_id,role_token.target_id,db):
+            raise ValueError("Target user is from another organization")
 
         # PROTECTION: Cannot revoke Administrator roles
         if role.label in [RoleEnum.ADMINISTRATOR.value, RoleEnum.SECURITY_OFFICER.value]:

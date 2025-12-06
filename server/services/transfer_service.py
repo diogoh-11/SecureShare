@@ -4,79 +4,13 @@ from models.models import Transfer, TransferKey, ClearanceLevel, Department, Use
 from datetime import datetime, timedelta
 from typing import List
 import os
-import shutil
 import base64
 import uuid
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.backends import default_backend
+from utils.mls_utils import same_organization
 
 UPLOAD_DIR = "uploads"
 
 class TransferService:
-    @staticmethod
-    def create_transfer(
-        db: Session,
-        sender_id: int,
-        file_content: bytes,
-        original_filename: str,
-        classification_level: str,
-        departments: List[str],
-        encrypted_keys: dict,
-        strategy : str,
-        nonce : str,
-        expiration_days: int = 7
-    ):
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-        clearance = db.query(ClearanceLevel).filter(
-            ClearanceLevel.label == classification_level
-        ).first()
-
-        if not clearance:
-            raise ValueError(f"Classification level '{classification_level}' not found")
-
-        transfer = Transfer(
-            sender_id=sender_id,
-            nonce=nonce,
-            strategy=strategy,
-            classification_level_id=clearance.id,
-            expiration_time=datetime.utcnow() + timedelta(days=expiration_days),
-            file_path="",
-            original_filename=original_filename,
-            created_at=datetime.utcnow(),
-        )
-
-        db.add(transfer)
-        db.flush()
-
-        file_path = os.path.join(UPLOAD_DIR, f"transfer_{transfer.id}_{original_filename}")
-        transfer.file_path = file_path
-
-        with open(file_path, "wb") as f:
-            f.write(file_content)
-
-        for dept_label in departments:
-            dept = db.query(Department).filter(Department.label == dept_label).first()
-            if dept:
-                db.execute(
-                    text("INSERT INTO transfer_department (transfer_id, department_id) VALUES (:transfer_id, :dept_id)"),
-                    {"transfer_id": transfer.id, "dept_id": dept.id}
-                )
-
-        for user_id_str, encrypted_key in encrypted_keys.items():
-            user_id = int(user_id_str)
-            transfer_key = TransferKey(
-                transfer_id=transfer.id,
-                user_id=user_id,
-                encrypted_key=encrypted_key.encode('utf-8') if isinstance(encrypted_key, str) else encrypted_key
-            )
-            db.add(transfer_key)
-
-        db.commit()
-        db.refresh(transfer)
-
-        return transfer
 
     @staticmethod
     def create_transfer_with_key_encryption(
@@ -102,7 +36,7 @@ class TransferService:
         os.makedirs(UPLOAD_DIR, exist_ok=True)
 
         # Get sender's organization
-        sender = db.query(User).filter(User.id == sender_id).first()
+        sender:User = db.query(User).filter(User.id == sender_id).first()
         if not sender:
             raise ValueError("Sender not found")
 
@@ -134,17 +68,15 @@ class TransferService:
         file_path = os.path.join(UPLOAD_DIR, f"{file_uuid}.enc")
         transfer.file_path = file_path
 
-        with open(file_path, "wb") as f:
-            f.write(file_content)
-
         # Add departments
         for dept_label in departments:
-            dept = db.query(Department).filter(Department.label == dept_label).first()
-            if dept:
-                db.execute(
-                    text("INSERT INTO transfer_department (transfer_id, department_id) VALUES (:transfer_id, :dept_id)"),
-                    {"transfer_id": transfer.id, "dept_id": dept.id}
-                )
+            dept:Department = db.query(Department).filter(Department.label == dept_label).first()
+            if not( dept and dept.organization_id == sender.organization_id):
+                raise ValueError(f"Cannot sahre file to department {dept_label} - does not exist or is from another organization")
+            db.execute(
+                text("INSERT INTO transfer_department (transfer_id, department_id) VALUES (:transfer_id, :dept_id)"),
+                {"transfer_id": transfer.id, "dept_id": dept.id}
+            )
 
         # Handle public transfers differently
         if transfer_mode == "public":
@@ -171,6 +103,10 @@ class TransferService:
             if not user or not user.public_key:
                 continue
 
+            # SECURITY: Verify recipient is in same organization as sender
+            if not same_organization(sender_id, int(user_id), db):
+                raise ValueError(f"Cannot share with user {user_id} - different organization")
+
             transfer_key = TransferKey(
                 transfer_id=transfer.id,
                 user_id=user_id,
@@ -182,6 +118,9 @@ class TransferService:
 
         db.commit()
         db.refresh(transfer)
+
+        with open(file_path, "wb") as f:
+            f.write(file_content)
 
         return {
             "id": transfer.id,
@@ -233,6 +172,8 @@ class TransferService:
             return None
 
         transfer_obj, classification = transfer
+        if not same_organization(user_id, transfer_obj.sender_id, db):
+            return None
 
         # Check if user has encrypted key (is a recipient)
         # TODO: check if trusted officer can bypass
@@ -297,8 +238,6 @@ class TransferService:
         are only available at creation-time; when not available we fall back to
         reasonable defaults or empty values to preserve the client's expected shape.
         """
-        from sqlalchemy.orm import Session as _Session
-        # Import json locally to avoid top-level dependency changes
         import json as _json
 
         transfer = db.query(Transfer, ClearanceLevel).join(
