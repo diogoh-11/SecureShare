@@ -372,6 +372,12 @@ def cmd_transfer_upload(args):
         print("Error: User-specific transfers require at least one recipient (--recipients)")
         sys.exit(1)
 
+    strategy_encryption = args.strategy
+    if strategy_encryption != "XChaCha" and strategy_encryption != "GCM":
+        print(f"Error: Strategy {strategy_encryption} is invalid")
+        print("The strategies available are XChaCha and GCM")
+        sys.exit(1)
+
     # Handle multiple files - create zip if needed
     files = args.files.split(",") if args.files else []
     if not files:
@@ -402,11 +408,10 @@ def cmd_transfer_upload(args):
     print("Encrypting file...")
     km = KeyManager()
     file_key = km.generate_file_key()
-    encrypted_file_data = km.encrypt_file(file_data, file_key)
+    nonce = km.generate_nonce()
 
     # Encrypt file key for each recipient
     recipients_dict = {}
-
     for r in recipients:
         res = client.get_user_key(r)
         key = res.json().get("public_key", None)
@@ -418,7 +423,10 @@ def cmd_transfer_upload(args):
 
     print(f"Uploading encrypted file to {len(recipients_dict)} recipients...")
     response = client.upload_transfer(
-        encrypted_file_data,
+        file_data,
+        file_key,
+        nonce,
+        strategy_encryption,
         "Unclassified",  # User-specific transfers don't need classification
         [],  # No departments
         args.expiration,
@@ -435,6 +443,12 @@ def cmd_transfer_upload_public(args):
     # Public transfers require classification and departments
     departments = args.departments.split(",") if args.departments else []
 
+    strategy_encryption = args.strategy
+    if strategy_encryption != "XChaCha" and strategy_encryption != "GCM":
+        print(f"Error: Strategy {strategy_encryption} is invalid")
+        print("The strategies available are XChaCha and GCM")
+        sys.exit(1)
+
     # Handle multiple files - create zip if needed
     files = args.files.split(",") if args.files else []
     if not files:
@@ -465,11 +479,14 @@ def cmd_transfer_upload_public(args):
     print("Encrypting file...")
     km = KeyManager()
     file_key = km.generate_file_key()
-    encrypted_file_data = km.encrypt_file(file_data, file_key)
+    nonce = km.generate_nonce()
 
     print("Creating public transfer (anyone with proper clearance can download)...")
     response = client.upload_transfer(
-        encrypted_file_data,
+        file_data,
+        file_key,
+        nonce,
+        strategy_encryption,
         args.classification,
         departments,
         args.expiration,
@@ -566,11 +583,18 @@ def cmd_transfer_download(args):
         return
 
     encrypted_file_data = response.content
-
+    metadata = json.loads(response.headers["metadata"])
     # Decrypt file
     print("Decrypting file...")
+    km = KeyManager()
+    strategy = metadata["strategy"]
+    nonce = base64.b64decode(metadata["nonce"])
+
     try:
-        decrypted_file_data = km.decrypt_file(encrypted_file_data, file_key)
+        if strategy == "GCM":
+            decrypted_file_data = km.decrypt_file_gcm(file_key, nonce, encrypted_file_data, metadata)
+        elif strategy == "XChaCha":
+            decrypted_file_data = km.decrypt_file_xshasha(file_key, nonce, encrypted_file_data, metadata)
     except Exception as e:
         print(f"Error: Failed to decrypt file: {e}")
         sys.exit(1)
@@ -651,6 +675,7 @@ def cmd_transfer_download_public(args):
             sys.exit(1)
 
         encrypted_file_data = response.content
+        metadata = json.loads(response.headers["metadata"])
     except Exception as e:
         print(f"Error downloading file: {e}")
         sys.exit(1)
@@ -658,11 +683,13 @@ def cmd_transfer_download_public(args):
     # Decrypt file
     print("Decrypting file...")
     km = KeyManager()
-    try:
-        decrypted_file_data = km.decrypt_file(encrypted_file_data, file_key)
-    except Exception as e:
-        print(f"Error: Failed to decrypt file: {e}")
-        sys.exit(1)
+    strategy = metadata["strategy"]
+    nonce = base64.b64decode(metadata["nonce"])
+    print("Strategy:", strategy, "nonce:", nonce, "metadata:", metadata)
+    if strategy == "GCM":
+        decrypted_file_data = km.decrypt_file_gcm(file_key, nonce, encrypted_file_data, metadata)
+    elif strategy == "XChaCha":
+        decrypted_file_data = km.decrypt_file_xshasha(file_key, nonce, encrypted_file_data, metadata)
 
     # Determine output filename
     if args.output:
@@ -931,6 +958,7 @@ Examples:
     transfer_upload.add_argument("--files", required=True, help="Comma-separated file paths (multiple files will be zipped)")
     transfer_upload.add_argument("--recipients", required=True, help="Comma-separated user IDs (target users)")
     transfer_upload.add_argument("--expiration", type=int, default=7, help="Expiration days (default: 7)")
+    transfer_upload.add_argument("--strategy", type=str, default="GCM", help="Cypher used on encryption (either GCM or XChaCha) (default: GCM)")
     transfer_upload.set_defaults(func=cmd_transfer_upload)
 
     # Public upload - requires classification and departments
@@ -939,7 +967,9 @@ Examples:
     transfer_upload_public.add_argument("--classification", required=True, choices=["Unclassified", "Confidential", "Secret", "Top Secret"], help="Classification level")
     transfer_upload_public.add_argument("--departments", help="Comma-separated department names")
     transfer_upload_public.add_argument("--expiration", type=int, default=7, help="Expiration days (default: 7)")
+    transfer_upload_public.add_argument("--strategy", type=str, default="GCM", help="Cypher used on encryption (either GCM or XChaCha) (default: GCM)")
     transfer_upload_public.set_defaults(func=cmd_transfer_upload_public)
+
     transfer_list = transfer_sub.add_parser("list", help="List transfers")
     transfer_list.set_defaults(func=cmd_transfer_list)
     transfer_get = transfer_sub.add_parser("get", help="Get transfer info")

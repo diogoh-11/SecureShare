@@ -1,8 +1,14 @@
+import json
+import secrets
+from typing import Any, Dict, Tuple
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+
 import base64
 import os
 
@@ -165,17 +171,44 @@ class KeyManager:
 
     def generate_file_key(self) -> bytes:
         """Generate random AES key for file encryption"""
-        return Fernet.generate_key()
+        return secrets.token_bytes(32)
+    
+    def generate_nonce(self) -> bytes:
+        return secrets.token_bytes(12)
 
-    def encrypt_file(self, file_data: bytes, file_key: bytes) -> bytes:
+    def encrypt_file_xshasha(self, file_data: bytes, file_key: bytes, nonce : bytes, metadata : Dict[str, Any]) -> bytes:
         """Encrypt file data with symmetric key"""
-        fernet = Fernet(file_key)
-        return fernet.encrypt(file_data)
+        ordered_metadata = dict(sorted(metadata.items()))
+        aad = json.dumps(ordered_metadata).encode()
+        chacha = ChaCha20Poly1305(file_key)
+        
+        ct = chacha.encrypt(nonce, file_data, aad)
+        return ct
 
-    def decrypt_file(self, encrypted_data: bytes, file_key: bytes) -> bytes:
+    def decrypt_file_xshasha(self, file_key : bytes, nonce : bytes, ciphertext : bytes, metadata : Dict[str, Any]) -> bytes:
         """Decrypt file data with symmetric key"""
-        fernet = Fernet(file_key)
-        return fernet.decrypt(encrypted_data)
+        ordered_metadata = dict(sorted(metadata.items()))
+        aad = json.dumps(ordered_metadata).encode()
+        chacha = ChaCha20Poly1305(file_key)
+        plaintext = chacha.decrypt(nonce, ciphertext, aad)
+        return plaintext
+
+    def encrypt_file_gcm(self, file_data : bytes, file_key: bytes, nonce : bytes, metadata : Dict[str, Any]) -> bytes:
+    
+        aes = AESGCM(file_key)
+        ordered_metadata = dict(sorted(metadata.items()))
+        print(ordered_metadata)
+        ct = aes.encrypt(nonce, file_data, json.dumps(ordered_metadata).encode())
+
+        return ct
+
+    def decrypt_file_gcm(self, file_key : bytes, nonce : bytes, ciphertext : bytes, metadata : Dict[str, Any]) -> bytes:
+        aes = AESGCM(file_key)
+        ordered_metadata = dict(sorted(metadata.items()))
+        print(ordered_metadata)
+        plaintext = aes.decrypt(nonce, ciphertext, json.dumps(ordered_metadata).encode())
+        return plaintext 
+
 
     def sign_data(self, data: str) -> str:
         """

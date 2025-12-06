@@ -34,6 +34,8 @@ async def create_transfer(
     expiration_days: int = Form(7),
     transfer_mode: str = Form("user"),
     recipients: str = Form("[]"),
+    strategy : str = Form(...),
+    nonce : str = Form(...),
     x_acting_clearance: Optional[str] = Header(None),
     x_acting_role: Optional[str] = Header(None),
     user_db: tuple = Depends(get_current_user),
@@ -84,10 +86,16 @@ async def create_transfer(
 
     file_content = await file.read()
 
+    if strategy != "GCM" and strategy != "XChaCha":
+        raise HTTPException(
+                status_code=403,
+                detail="Invalid Strategy"
+            )
+
     try:
         transfer = TransferService.create_transfer_with_key_encryption(
             db, user.id, file_content,
-            classification_level, dept_list, expiration_days,
+            classification_level, dept_list, strategy, nonce, expiration_days,
             transfer_mode, decoded_recipients
         )
 
@@ -118,32 +126,9 @@ async def get_transfer(
     justification: str = None,
     x_acting_role: Optional[str] = Header(None),
     user_db: tuple = Depends(get_current_user),
-    db: Session = Depends(require_role(["Standard User","Trusted Officer"]))
+    db: Session = Depends(require_role(["Standard User"]))
 ):
     user, _ = user_db
-
-    # Get acting role (defaults to Standard User)
-    acting_role = x_acting_role or "Standard User"
-
-    trusted = is_trusted_officer(db, user.id, acting_role)
-    if not trusted:
-        can_access = check_transfer_read_access(db, user.id, transfer_id)
-        if not can_access:
-            raise HTTPException(
-                status_code=403,
-                detail="User clearance does not allow reading this classification level"
-            )
-    else:
-        if justification:
-            AuditService.log_action(
-                db, user.id, "TRUSTED_OFFICER_ACCESS",
-                {"transfer_id": transfer_id, "justification": justification}
-            )
-        else:
-            raise HTTPException(
-                status_code = 403,
-                detail= "Cannot bypass MLS without justification"
-            )
 
     transfer = TransferService.get_transfer(db, transfer_id, user.id)
     if not transfer:
@@ -231,16 +216,15 @@ async def download_public_transfer(
     if not result:
         raise HTTPException(status_code=404, detail="Transfer file not found")
 
-    file_content, _ = result
+    file_content, file_name, strategy, nonce = result
+    metadata = TransferService.get_transfer_metadata(db, transfer.id)
 
     AuditService.log_action(db, user.id, "DOWNLOAD_PUBLIC_TRANSFER", {"transfer_id": transfer.id, "access_token": access_token})
 
     return StreamingResponse(
         io.BytesIO(file_content),
         media_type="application/octet-stream",
-        headers={
-            "Content-Disposition": 'attachment; filename="encrypted_file.enc"'
-        }
+        headers={"Content-Disposition": 'attachment; filename="encrypted_file.enc"', "metadata" : json.dumps(metadata) }
     )
 
 
@@ -289,12 +273,13 @@ async def download_transfer(
     if not result:
         raise HTTPException(status_code=404, detail="Transfer file not found")
 
-    file_content, _ = result
+    file_content, file_name, strategy, nonce = result
+    metadata = TransferService.get_transfer_metadata(db, transfer_id)
 
     AuditService.log_action(db, user.id, "DOWNLOAD_TRANSFER", {"transfer_id": transfer_id})
 
     return StreamingResponse(
         io.BytesIO(file_content),
         media_type="application/octet-stream",
-        headers={"Content-Disposition": 'attachment; filename="encrypted_file.enc"'}
+        headers={"Content-Disposition": 'attachment; filename="encrypted_file.enc"', "metadata": json.dumps(metadata)}
     )
