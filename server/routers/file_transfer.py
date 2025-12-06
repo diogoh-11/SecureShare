@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Respons
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional
-from database import get_db
+from utils.mls_utils import same_organization
 from utils.rbac import get_current_user, require_role
 from utils.mls_utils import check_transfer_read_access, check_transfer_write_access, is_trusted_officer
 from services.transfer_service import TransferService
@@ -177,7 +177,7 @@ async def download_public_transfer(
     # Get acting role (defaults to Standard User)
     acting_role = x_acting_role or "Standard User"
 
-    transfer = db.query(Transfer).filter(
+    transfer:Transfer = db.query(Transfer).filter(
         Transfer.public_access_token == access_token
     ).first()
 
@@ -187,6 +187,12 @@ async def download_public_transfer(
     # Check expiration
     if transfer.expiration_time and transfer.expiration_time < datetime.utcnow():
         raise HTTPException(status_code=410, detail="Transfer has expired")
+
+    if not same_organization(user.id, transfer.sender_id, db):
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot access public transfer from different organization"
+        )
 
     # ENFORCE MLS: Check if user has proper clearance to access this transfer
     # Trusted Officers can bypass MLS checks
@@ -232,7 +238,6 @@ async def download_public_transfer(
 async def download_transfer(
     transfer_id: int,
     justification: str = None,
-    x_acting_clearance: Optional[str] = Header(None),
     x_acting_role: Optional[str] = Header(None),
     user_db: tuple = Depends(get_current_user),
     db: Session = Depends(require_role(["Standard User"]))

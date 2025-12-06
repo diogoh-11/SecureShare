@@ -75,6 +75,12 @@ async def get_users(
                         "clearance_token_id": c['id'],
                         "clearance_label": c['clearance_level']
                     })
+                if c["is_organizational"]:
+                    clearance_list.append({
+                     "clearance_token_id": c['id'],
+                     "clearance_label": c['clearance_level']
+                 })
+
 
         result.append({
             "id": u.id,

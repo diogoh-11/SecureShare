@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
-from database import get_db
 from utils.rbac import require_role, get_current_user
 from services.audit_service import AuditService
 
