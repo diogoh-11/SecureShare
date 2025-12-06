@@ -1,0 +1,236 @@
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from models.models import ClearanceToken, ClearanceLevel, Department, Transfer, User, ClearanceRevocation
+from typing import List, Set, Optional
+from datetime import datetime
+from enums import ClearanceLevelEnum
+
+def same_organization(user_id1: int, user_id2: int, db: Session) -> bool:
+    """
+    Check if two users belong to the same organization.
+    Returns True if both users exist and are in the same organization.
+    Returns False otherwise.
+    """
+    user1 = db.query(User).filter(User.id == user_id1).first()
+    user2 = db.query(User).filter(User.id == user_id2).first()
+
+    if not user1 or not user2:
+        return False
+
+    return user1.organization_id == user2.organization_id
+
+CLEARANCE_HIERARCHY = {
+    ClearanceLevelEnum.UNCLASSIFIED: 0,
+    ClearanceLevelEnum.CONFIDENTIAL: 1,
+    ClearanceLevelEnum.SECRET: 2,
+    ClearanceLevelEnum.TOP_SECRET: 3
+}
+
+def get_clearance_level_value(level: str) -> int:
+    for enum_val, numeric_val in CLEARANCE_HIERARCHY.items():
+        if enum_val.value == level:
+            return numeric_val
+    return 0
+
+def get_specific_clearance(db: Session, user_id: int, clearance_token_id: int) -> tuple[str, Set[str],bool]:
+    """
+    Get clearance for a specific token ID.
+    Returns (clearance_level, departments) or None if token not found/invalid.
+    If clearance is organizational, returns ALL departments.
+    """
+    clearance = db.query(ClearanceToken, ClearanceLevel).join(
+        ClearanceLevel, ClearanceToken.clearance_level_id == ClearanceLevel.id
+    ).filter(
+        ClearanceToken.id == clearance_token_id,
+        ClearanceToken.user_id == user_id
+    ).first()
+
+    if not clearance:
+        return None, None,False
+
+    clearance_token, clearance_level = clearance
+
+    # Check if revoked
+    is_revoked = db.query(ClearanceRevocation).filter(
+        ClearanceRevocation.clearance_token_id == clearance_token.id
+    ).first() is not None
+
+    if is_revoked:
+        return None, None,False
+
+    # Check if expired
+    if clearance_token.expiration_time and clearance_token.expiration_time < datetime.utcnow():
+        return None, None,False
+
+    # If organizational clearance, return ALL departments
+    if clearance_token.is_organizational:
+        return clearance_level.label, set(), True
+
+    # Otherwise, get specific departments for this clearance
+    departments = db.execute(
+        text("SELECT d.label FROM departments d "
+             "JOIN clearance_department cd ON d.id = cd.department_id "
+             "WHERE cd.clearance_token_id = :token_id"),
+        {"token_id": clearance_token.id}
+    ).fetchall()
+
+    dept_set = {dept[0] for dept in departments}
+
+    return clearance_level.label, dept_set, False
+
+def get_user_max_clearance(db: Session, user_id: int) -> tuple[str, Set[str]]:
+    clearances = db.query(ClearanceToken, ClearanceLevel).join(
+        ClearanceLevel, ClearanceToken.clearance_level_id == ClearanceLevel.id
+    ).filter(
+        ClearanceToken.user_id == user_id,
+        (ClearanceToken.expiration_time > datetime.utcnow()) | (ClearanceToken.expiration_time == None)
+    ).all()
+
+    if not clearances:
+        return ClearanceLevelEnum.UNCLASSIFIED.value, set()
+
+    max_level = ClearanceLevelEnum.UNCLASSIFIED.value
+    all_departments = set()
+
+    for clearance_token, clearance_level in clearances:
+        # CRITICAL: Check if clearance is revoked
+        is_revoked = db.query(ClearanceRevocation).filter(
+            ClearanceRevocation.clearance_token_id == clearance_token.id
+        ).first() is not None
+
+        if is_revoked:
+            # Skip revoked clearances
+            continue
+
+        level_value = get_clearance_level_value(clearance_level.label)
+        if level_value > get_clearance_level_value(max_level):
+            max_level = clearance_level.label
+
+        # If organizational clearance, add ALL departments
+        if clearance_token.is_organizational:
+            org_depts = db.query(Department).all()
+            for dept in org_depts:
+                all_departments.add(dept.label)
+        else:
+            # Otherwise, add specific departments
+            departments = db.execute(
+                text("SELECT d.label FROM departments d "
+                     "JOIN clearance_department cd ON d.id = cd.department_id "
+                     "WHERE cd.clearance_token_id = :token_id"),
+                {"token_id": clearance_token.id}
+            ).fetchall()
+
+            for dept in departments:
+                all_departments.add(dept[0])
+
+    return max_level, all_departments
+
+def get_transfer_classification(db: Session, transfer_id: int) -> tuple[str, Set[str]]:
+    transfer = db.query(Transfer, ClearanceLevel).join(
+        ClearanceLevel, Transfer.classification_level_id == ClearanceLevel.id
+    ).filter(
+        Transfer.id == transfer_id
+    ).first()
+
+    if not transfer:
+        return None, None
+
+    transfer_obj, classification = transfer
+
+    departments = db.execute(
+        text("SELECT d.label FROM departments d "
+             "JOIN transfer_department td ON d.id = td.department_id "
+             "WHERE td.transfer_id = :transfer_id"),
+        {"transfer_id": transfer_id}
+    ).fetchall()
+
+    dept_set = {dept[0] for dept in departments}
+
+    return classification.label, dept_set
+
+def can_read(user_level: str, user_depts: Set[str], object_level: str, object_depts: Set[str], is_organizational: bool = False) -> bool:
+    user_level_value = get_clearance_level_value(user_level)
+    object_level_value = get_clearance_level_value(object_level)
+
+    if user_level_value < object_level_value:
+        return False
+
+    if is_organizational:
+        return True
+
+    if not object_depts.issubset(user_depts):
+        return False
+
+    return True
+
+def can_write(user_level: str, user_depts: Set[str], object_level: str, object_depts: Set[str], is_organizational: bool = False) -> bool:
+    user_level_value = get_clearance_level_value(user_level)
+    object_level_value = get_clearance_level_value(object_level)
+
+    # No Write Down: can only write at or above clearance level
+    if user_level_value > object_level_value:
+        return False
+
+    if is_organizational:
+        return True
+
+    # Compartments: user must have clearance in ALL departments the object requires
+    if not user_depts.issubset(object_depts):
+        return False
+
+    return True
+
+def check_transfer_read_access(db: Session, user_id: int, transfer_id: int, clearance_token_id: int) -> bool:
+    """
+    Check if user can read a transfer.
+    If clearance_token_id is provided, use that specific clearance.
+    If not provided, user has no clearance (Unclassified only).
+    """
+    user_level, user_depts, is_organizational = get_specific_clearance(db, user_id, clearance_token_id)
+    if user_level is None:
+        # Invalid or revoked clearance token
+        return False
+
+    transfer_level, transfer_depts = get_transfer_classification(db, transfer_id)
+
+    if transfer_level is None:
+        return False
+
+    if transfer_depts is None:
+        transfer_depts = set()
+
+    return can_read(user_level, user_depts, transfer_level, transfer_depts, is_organizational)
+
+def check_transfer_write_access(
+    db: Session,
+    user_id: int,
+    classification_level: str,
+    departments: List[str],
+    clearance_token_id:int
+) -> bool:
+    """
+    Check if user can write at the specified classification level.
+    If clearance_token_id is provided, use that specific clearance.
+    If not provided, user has no clearance (Unclassified only).
+    """
+    user_level, user_depts, is_organizational = get_specific_clearance(db, user_id, clearance_token_id)
+    if user_level is None:
+        # Invalid or revoked clearance token
+        return False
+
+    dept_set = set(departments)
+
+    return can_write(user_level, user_depts, classification_level, dept_set, is_organizational)
+
+def is_trusted_officer(db: Session, user_id: int, acting_role: str) -> bool:
+    """
+    Check if user is acting as Trusted Officer.
+    Verifies that acting_role is "Trusted Officer" AND that the user actually has this role.
+    """
+    from utils.rbac import get_active_user_roles
+
+    if acting_role != "Trusted Officer":
+        return False
+
+    user_roles = get_active_user_roles(db, user_id)
+    return acting_role in user_roles

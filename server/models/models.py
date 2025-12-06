@@ -1,5 +1,7 @@
+from sqlite3 import Date
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, LargeBinary, Table
 import time
+from datetime import datetime
 from database import Base
 
 user_department = Table(
@@ -13,6 +15,13 @@ clearance_department = Table(
     'clearance_department',
     Base.metadata,
     Column('clearance_token_id', Integer, ForeignKey('clearance_tokens.id'), primary_key=True),
+    Column('department_id', Integer, ForeignKey('departments.id'), primary_key=True)
+)
+
+transfer_department = Table(
+    'transfer_department',
+    Base.metadata,
+    Column('transfer_id', Integer, ForeignKey('transfers.id'), primary_key=True),
     Column('department_id', Integer, ForeignKey('departments.id'), primary_key=True)
 )
 
@@ -100,6 +109,12 @@ class Transfer(Base):
     expiration_time = Column(DateTime)
     classification_level_id = Column(Integer, ForeignKey('clearance_levels.id'), nullable=False)
     sender_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    file_path = Column(String, nullable=False)
+    original_filename = Column(String, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now())
+    public_access_token = Column(String, nullable=True, unique=True)
+    strategy = Column(String, nullable=False)
+    nonce = Column(String, nullable=False)
 
 class TransferKey(Base):
     __tablename__ = 'transfer_keys'
@@ -119,9 +134,13 @@ class RoleToken(Base):
     __tablename__ = 'role_tokens'
 
     id = Column(Integer, primary_key=True, index=True)
-    role_id = Column(String, ForeignKey('roles.id') ,nullable=False)
+    role_id = Column(Integer, ForeignKey('roles.id') ,nullable=False)
     signature = Column(LargeBinary, nullable=False)
+    
+    # For Audit Log necessity
+    created_at = Column(DateTime, default=lambda: datetime.now(), nullable= False)
     expires_at = Column(DateTime)
+
     target_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     issuer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
 
@@ -130,15 +149,33 @@ class RoleRevocation(Base):
     __tablename__ = 'role_revocations'
 
     role_token_id = Column(Integer, ForeignKey('role_tokens.id'), primary_key=True)
+
+    #For Audit log necessity
+    revoked_at = Column(DateTime, default=lambda: datetime.now(), nullable= False)
     revoker_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+
+
+class ClearanceRevocation(Base):
+    __tablename__ = 'clearance_revocations'
+
+    clearance_token_id = Column(Integer, ForeignKey('clearance_tokens.id'), primary_key=True)
+    revoker_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+
+    #For Audit log necessity
+    revoked_at = Column(DateTime, default=lambda: datetime.now())
 
 
 class ClearanceToken(Base):
     __tablename__ = 'clearance_tokens'
 
     id = Column(Integer, primary_key=True, index=True)
+
+    #For Audit necessity
+    created_at = Column(DateTime, default=lambda: datetime.now(), nullable= False)
     expiration_time = Column(DateTime)
+
     is_organizational = Column(Boolean, default=False)
     issuer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     clearance_level_id = Column(Integer, ForeignKey('clearance_levels.id'), nullable=False)
+    signature = Column(LargeBinary, nullable=False)

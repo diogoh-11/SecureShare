@@ -10,7 +10,7 @@ def sha256(code: str) -> str:
 
 def generate_codes(count: int = 10, size:int = 12) -> list[str]:
     """Generate cryptographically secure codes"""
-    return [secrets.token_urlsafe(size) for _ in range(count)]
+    return ["C"+secrets.token_urlsafe(size) for _ in range(count)]
 
 def required(v, t):
     if not v:

@@ -1,9 +1,10 @@
 import time
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Tuple
 from fastapi import HTTPException, Header, Depends
 from database import get_db
-from models.models import Role, RoleToken
+from models.models import Role, RoleToken, User
+from enums import RoleEnum
 
 def role2user(db: Session, signature: bytes, role: str, expires_at: Optional[int], target_id: int, issuer_id: int):
     """
@@ -34,6 +35,8 @@ def role2user(db: Session, signature: bytes, role: str, expires_at: Optional[int
     db.add(role_token)
     db.commit()
 
+    return role_token
+
 def require_role(required_roles: list[str]):
     """
     FastAPI dependency to check if the authenticated user has any of the required roles.
@@ -49,31 +52,43 @@ def require_role(required_roles: list[str]):
 
     def role_checker(
         authorization: str = Header(...),
+        x_acting_role: Optional[str] = Header(None),
         db: Session = Depends(get_db)
     ):
-        from models.models import Session as SessionModel, User
+        from models.models import User, Session as SessionModel
 
-        # Extract session token
-        session_token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
 
-        # Get user from session token
+        # Find session in database
         session = db.query(SessionModel).filter(
-            SessionModel.session_token == session_token,
-            SessionModel.expires_at > int(time.time())
+            SessionModel.session_token == token
         ).first()
 
         if not session:
-            raise HTTPException(status_code=401, detail="Invalid or expired session")
+            raise HTTPException(status_code=401, detail="Invalid session")
 
+        # Check if session is expired
+        current_time = time.time()
+        if session.expires_at < current_time:
+            db.delete(session)
+            db.commit()
+            raise HTTPException(status_code=401, detail="Session expired")
+
+        # Get user
         user = db.query(User).filter(User.id == session.user_id).first()
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="User not found or inactive")
 
-        # Get user's active roles
         user_roles = get_active_user_roles(db, user.id)
+        acting_role = x_acting_role or RoleEnum.STANDARD_USER
 
-        # Check if user has any of the required roles
-        if not any(role in user_roles for role in required_roles):
+        if acting_role not in user_roles:
+            raise HTTPException(
+                status_code=404,
+                detail=f"User does not have {acting_role}"
+            )
+
+        if acting_role not in required_roles:
             raise HTTPException(
                 status_code=403,
                 detail=f"Required role: {' or '.join(required_roles)}"
@@ -134,3 +149,31 @@ def get_active_user_roles(db: Session, user_id: int) -> set[str]:
         response.add(role.label)
 
     return response
+
+def get_current_user(authorization: str = Header(...), db: Session = Depends(get_db)) -> Tuple[User, Session]:
+    from models.models import Session as SessionModel
+
+    token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+
+    # Find session in database
+    session = db.query(SessionModel).filter(
+        SessionModel.session_token == token
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+    # Check if session is expired
+    current_time = time.time()
+    if session.expires_at < current_time:
+        # Session expired, delete it
+        db.delete(session)
+        db.commit()
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    # Get user
+    user = db.query(User).filter(User.id == session.user_id).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+
+    return user, db

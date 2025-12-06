@@ -23,7 +23,7 @@ async def create_organization(request: CreateOrganizationRequest, db: Session = 
         result = OrganizationService.create_organization(db, request)
         return OrganizationCreationResponse(
             success=True,
-            message="Organization created. Please use the activation code to register your FIDO2 credential.",
+            message=f"Organization created. Please activate the admin [{result["username"]}] account.",
             username=result["username"],
             activation_code=result["activation_code"],
             org_name=result["organization"].name

@@ -5,7 +5,7 @@ from database import engine, Base, SessionLocal
 from models.models import (
     Organization, User, Department, ClearanceLevel,
     Transfer, TransferKey, Role, RoleToken, RoleRevocation,
-    ClearanceToken, Session, RecoveryTokens
+    ClearanceToken, ClearanceRevocation, Session, RecoveryTokens
 )
 
 from routers import api
@@ -17,16 +17,19 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# init db
 @app.on_event("startup")
 async def startup_event():
-    """Create database tables and seed initial data on startup"""
     Base.metadata.create_all(bind=engine)
     print("Database initialized successfully!")
 
     db = SessionLocal()
     try:
         SeedService.seed_all(db)
+
+        # Clean up expired sessions on startup
+        from services.auth_service import AuthService
+        AuthService.cleanup_expired_sessions(db)
+        print("Session cleanup completed!")
     finally:
         db.close()
 
