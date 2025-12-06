@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
+from utils.mls_utils import same_organization
 from sqlalchemy.orm import Session
 from database import get_db
 from utils.rbac import require_role, get_current_user
@@ -55,7 +56,7 @@ async def get_users(
     from services.clearance_service import RoleService, ClearanceService
 
     user, _ = user_db
-    users = UserManagementService.get_all_users(db)
+    users = UserManagementService.get_all_users(db,user.organization_id)
 
     result = []
     for u in users:
@@ -74,6 +75,12 @@ async def get_users(
                         "clearance_token_id": c['id'],
                         "clearance_label": c['clearance_level']
                     })
+                if c["is_organizational"]:
+                    clearance_list.append({
+                     "clearance_token_id": c['id'],
+                     "clearance_label": c['clearance_level']
+                 })
+
 
         result.append({
             "id": u.id,
@@ -94,6 +101,9 @@ async def delete_user(
 ):
     from services.audit_service import AuditService
     user, _ = user_db
+
+    if not same_organization(user_id,user.organization_id,db):
+        raise HTTPException(status_code=403, detail = "Target user is from another organization")
 
     success = UserManagementService.delete_user(db, user_id)
     if not success:
@@ -254,6 +264,9 @@ async def get_user_public_key(
     db: Session = Depends(get_db)
 ):
     user, _ = user_db
+
+    if not same_organization(user.id, user_id, db):
+        raise HTTPException(status_code=403, detail="Cannot get public key from different organization")
     try:
         public_key = UserManagementService.get_user_public_key(db, user_id)
         return {"user_id": user_id, "public_key": public_key.decode()}

@@ -39,10 +39,16 @@ async def create_department(
 
 
 @router.get("")
-async def get_departments(db: Session = Depends(get_db)):
-    departments = db.query(Department).all()
-    return [{"id": d.id, "label": d.label} for d in departments]
-
+async def get_departments(
+    user_db: tuple = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+      user, _ = user_db
+      # SECURITY: Only get departments from same organization
+      departments = db.query(Department).filter(
+          Department.organization_id == user.organization_id
+      ).all()
+      return [{"id": d.id, "label": d.label} for d in departments]
 
 @router.delete("/{dept_id}")
 async def delete_department(
@@ -55,6 +61,11 @@ async def delete_department(
     department = db.query(Department).filter(Department.id == dept_id).first()
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
+
+
+    if not (user.organization_id == department.organization_id):
+        raise HTTPException(status_code=403, detail="Department form another organization")
+
 
     db.delete(department)
     db.commit()

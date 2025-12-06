@@ -65,9 +65,9 @@ class UserManagementService:
         }
 
     @staticmethod
-    def get_all_users(db: Session) -> list[User]:
+    def get_all_users(db: Session, organization_id:int) -> list[User]:
         """Get all users"""
-        return db.query(User).all()
+        return db.query(User).filter(User.organization_id == organization_id).all()
 
     @staticmethod
     def delete_user(db: Session, user_id: int) -> bool:

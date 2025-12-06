@@ -9,8 +9,15 @@ import json
 class AuditService:
     @staticmethod
     def log_action(db: Session, actor_id: int, action: str, details: dict = None):
-        previous_entry = db.query(AuditLog).order_by(
-            AuditLog.id.desc()).first()
+        actor = db.query(User).filter(User.id == actor_id).first()
+        if not actor:
+            raise ValueError("Actor not found")
+
+        previous_entry = db.query(AuditLog).join(
+            User, AuditLog.actor_id == User.id
+        ).filter(
+            User.organization_id == actor.organization_id
+        ).order_by(AuditLog.id.desc()).first()
         previous_hash = previous_entry.entryHash if previous_entry else "0" * 64
 
         timestamp = datetime.utcnow()
@@ -39,8 +46,12 @@ class AuditService:
         return audit_entry
 
     @staticmethod
-    def get_audit_log(db: Session, limit: int = None):
-        query = db.query(AuditLog).order_by(AuditLog.id.asc())
+    def get_audit_log(db: Session,organization_id: int,  limit: int = None):
+        query = db.query(AuditLog).join(
+            User, AuditLog.actor_id == User.id
+        ).filter(
+            User.organization_id == organization_id
+        ).order_by(AuditLog.id.asc())
         if limit:
             query = query.limit(limit)
 
@@ -59,7 +70,7 @@ class AuditService:
         ]
 
     @staticmethod
-    def verify_chain(db: Session, from_entry_id: int | None = None):
+    def verify_chain(db: Session,organization_id:int, from_entry_id: int | None = None):
         """
         Verify audit log chain integrity.
 
@@ -67,7 +78,11 @@ class AuditService:
             from_entry_id: If provided, only verify entries AFTER the last verified entry.
                           This enables incremental verification.
         """
-        query = db.query(AuditLog).order_by(AuditLog.id.asc())
+        query = db.query(AuditLog).join(
+            User, AuditLog.actor_id == User.id
+        ).filter(
+            User.organization_id == organization_id
+        ).order_by(AuditLog.id.asc())
 
         # Incremental verification: start from last verified entry
         if from_entry_id:
@@ -245,19 +260,18 @@ class AuditService:
         if not auditor:
             raise ValueError("Auditor not found")
 
-        # Check if auditor has Auditor role
-        from utils.rbac import get_active_user_roles
-        roles = get_active_user_roles(db, auditor_id)
-        if "Auditor" not in roles:
-            raise ValueError("User does not have Auditor role")
-
         # Get the most recent entry in the audit log (this is what we'll verify up to)
-        last_entry = db.query(AuditLog).order_by(AuditLog.id.desc()).first()
+        last_entry = db.query(AuditLog).join(
+            User, AuditLog.actor_id == User.id
+        ).filter(
+            User.organization_id == auditor.organization_id
+        ).order_by(AuditLog.id.desc()).first()
+
         if not last_entry:
             raise ValueError("No audit entries to verify")
 
         # Get last verification to know where to start checking
-        last_verification = AuditService.get_last_verification(db)
+        last_verification = AuditService.get_last_verification(db, organization_id=auditor.organization_id)
         from_entry = 0  # Initialize for scope
 
         if last_verification:
@@ -304,12 +318,12 @@ class AuditService:
             print(
                 f"[INFO] Verifying new entries from {from_entry + 1} to {last_entry.id} (incremental)")
             verify_result = AuditService.verify_chain(
-                db, from_entry_id=from_entry)
+                db, from_entry_id=from_entry, organization_id = auditor.organization_id)
         else:
             # First verification: verify entire chain
             print(
                 f"[INFO] First verification: verifying entire chain up to entry {last_entry.id}")
-            verify_result = AuditService.verify_chain(db, from_entry_id=None)
+            verify_result = AuditService.verify_chain(db, from_entry_id=None,organization_id = auditor.organization_id)
 
         if not verify_result["valid"]:
             raise ValueError(
@@ -332,16 +346,24 @@ class AuditService:
         return verification
 
     @staticmethod
-    def get_last_verification(db: Session) -> AuditVerification | None:
+    def get_last_verification(db: Session, organization_id: int) -> AuditVerification | None:
         """Get the most recent audit verification"""
-        return db.query(AuditVerification).order_by(
+        return db.query(AuditVerification).join(
+            User, AuditVerification.auditor_id == User.id
+        ).filter(
+            User.organization_id == organization_id
+        ).order_by(
             AuditVerification.audit_log_entry_id.desc()
         ).first()
 
     @staticmethod
-    def get_all_verifications(db: Session) -> list[dict]:
+    def get_all_verifications(db: Session, organization_id:int) -> list[dict]:
         """Get all audit verifications with auditor information"""
-        verifications = db.query(AuditVerification).order_by(
+        verifications = db.query(AuditVerification).join(
+            User, AuditVerification.auditor_id == User.id
+        ).filter(
+            User.organization_id == organization_id
+        ).order_by(
             AuditVerification.timestamp.desc()
         ).all()
 
@@ -361,33 +383,44 @@ class AuditService:
         return result
 
     @staticmethod
-    def verify_new_entries(db: Session) -> dict:
+    def verify_new_entries(db: Session,organization_id:int) -> dict:
         """
         Verify only entries created after the last verification.
         This is the incremental verification workflow.
         """
-        last_verification = AuditService.get_last_verification(db)
+        last_verification = AuditService.get_last_verification(db,organization_id=organization_id)
 
         if last_verification:
             print(
                 f"[INFO] Last verification at entry {last_verification.audit_log_entry_id}")
             return AuditService.verify_chain(
                 db,
-                from_entry_id=last_verification.audit_log_entry_id
+                from_entry_id=last_verification.audit_log_entry_id,
+                organization_id=organization_id
             )
         else:
             print("[INFO] No previous verification found, performing full verification")
-            return AuditService.verify_chain(db)
+            return AuditService.verify_chain(db, organization_id=organization_id)
 
     @staticmethod
     def get_verifications(db: Session, log_entry: AuditLog) -> dict:
         """
-        Valida se uma ação era valida nesse momento 
+        Valida se uma ação era valida nesse momento
         """
 
         action_timestamp = log_entry.timestamp
         actor_id = log_entry.actor_id
         action_type = log_entry.action
+
+        actor = db.query(User).filter(User.id == actor_id).first()
+        if not actor:
+            return {
+                "valid": False,
+                "message": "Actor not found",
+                "action_id": log_entry.id,
+                "actor_id": actor_id,
+                "action": action_type
+            }
 
         # Detalhes da ação
         try:
@@ -399,15 +432,17 @@ class AuditService:
         required_role = AuditService.get_required_role_for_action(action_type)
         if required_role:
             had_role = db.query(RoleToken).filter(
-                RoleToken.target_id == actor_id,
-                RoleToken.created_at <= action_timestamp,
-
-                # Criado antes
-                (RoleToken.expires_at > action_timestamp) |
-                (RoleToken.expires_at.is_(None))
-            ).join(Role).filter(
-                Role.label == required_role
-            ).first()
+                 RoleToken.target_id == actor_id,
+                 RoleToken.created_at <= action_timestamp,
+                 # Criado antes
+                 (RoleToken.expires_at > action_timestamp) |
+                 (RoleToken.expires_at.is_(None))
+             ).join(Role).filter(
+                 Role.label == required_role
+             ).join(User, RoleToken.issuer_id == User.id).filter(
+                 # SECURITY: Ensure role was issued within same organization
+                 User.organization_id == actor.organization_id
+             ).first()
 
             if not had_role:
                 return {
@@ -445,7 +480,10 @@ class AuditService:
                 (ClearanceToken.expiration_time.is_(None))
             ).join(ClearanceLevel).filter(
                 ClearanceLevel.label == required_level
-            ).first()
+            ).join(User, ClearanceToken.issuer_id == User.id).filter(
+                # SECURITY: Ensure clearance was issued within same organization
+                User.organization_id == actor.organization_id
+            ).first().first()
 
             if not had_clearance:
                 return {

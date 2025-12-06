@@ -5,6 +5,20 @@ from typing import List, Set, Optional
 from datetime import datetime
 from enums import ClearanceLevelEnum
 
+def same_organization(user_id1: int, user_id2: int, db: Session) -> bool:
+    """
+    Check if two users belong to the same organization.
+    Returns True if both users exist and are in the same organization.
+    Returns False otherwise.
+    """
+    user1 = db.query(User).filter(User.id == user_id1).first()
+    user2 = db.query(User).filter(User.id == user_id2).first()
+
+    if not user1 or not user2:
+        return False
+
+    return user1.organization_id == user2.organization_id
+
 CLEARANCE_HIERARCHY = {
     ClearanceLevelEnum.UNCLASSIFIED: 0,
     ClearanceLevelEnum.CONFIDENTIAL: 1,
@@ -18,7 +32,7 @@ def get_clearance_level_value(level: str) -> int:
             return numeric_val
     return 0
 
-def get_specific_clearance(db: Session, user_id: int, clearance_token_id: int) -> tuple[str, Set[str]]:
+def get_specific_clearance(db: Session, user_id: int, clearance_token_id: int) -> tuple[str, Set[str],bool]:
     """
     Get clearance for a specific token ID.
     Returns (clearance_level, departments) or None if token not found/invalid.
@@ -32,7 +46,7 @@ def get_specific_clearance(db: Session, user_id: int, clearance_token_id: int) -
     ).first()
 
     if not clearance:
-        return None, None
+        return None, None,False
 
     clearance_token, clearance_level = clearance
 
@@ -42,17 +56,15 @@ def get_specific_clearance(db: Session, user_id: int, clearance_token_id: int) -
     ).first() is not None
 
     if is_revoked:
-        return None, None
+        return None, None,False
 
     # Check if expired
     if clearance_token.expiration_time and clearance_token.expiration_time < datetime.utcnow():
-        return None, None
+        return None, None,False
 
     # If organizational clearance, return ALL departments
     if clearance_token.is_organizational:
-        all_depts = db.query(Department).all()
-        dept_set = {dept.label for dept in all_depts}
-        return clearance_level.label, dept_set
+        return clearance_level.label, set(), True
 
     # Otherwise, get specific departments for this clearance
     departments = db.execute(
@@ -64,7 +76,7 @@ def get_specific_clearance(db: Session, user_id: int, clearance_token_id: int) -
 
     dept_set = {dept[0] for dept in departments}
 
-    return clearance_level.label, dept_set
+    return clearance_level.label, dept_set, False
 
 def get_user_max_clearance(db: Session, user_id: int) -> tuple[str, Set[str]]:
     clearances = db.query(ClearanceToken, ClearanceLevel).join(
@@ -136,19 +148,22 @@ def get_transfer_classification(db: Session, transfer_id: int) -> tuple[str, Set
 
     return classification.label, dept_set
 
-def can_read(user_level: str, user_depts: Set[str], object_level: str, object_depts: Set[str]) -> bool:
+def can_read(user_level: str, user_depts: Set[str], object_level: str, object_depts: Set[str], is_organizational: bool = False) -> bool:
     user_level_value = get_clearance_level_value(user_level)
     object_level_value = get_clearance_level_value(object_level)
 
     if user_level_value < object_level_value:
         return False
 
+    if is_organizational:
+        return True
+
     if not object_depts.issubset(user_depts):
         return False
 
     return True
 
-def can_write(user_level: str, user_depts: Set[str], object_level: str, object_depts: Set[str]) -> bool:
+def can_write(user_level: str, user_depts: Set[str], object_level: str, object_depts: Set[str], is_organizational: bool = False) -> bool:
     user_level_value = get_clearance_level_value(user_level)
     object_level_value = get_clearance_level_value(object_level)
 
@@ -156,19 +171,22 @@ def can_write(user_level: str, user_depts: Set[str], object_level: str, object_d
     if user_level_value > object_level_value:
         return False
 
+    if is_organizational:
+        return True
+
     # Compartments: user must have clearance in ALL departments the object requires
-    if not object_depts.issubset(user_depts):
+    if not user_depts.issubset(object_depts):
         return False
 
     return True
 
-def check_transfer_read_access(db: Session, user_id: int, transfer_id: int, clearance_token_id: int = None) -> bool:
+def check_transfer_read_access(db: Session, user_id: int, transfer_id: int, clearance_token_id: int) -> bool:
     """
     Check if user can read a transfer.
     If clearance_token_id is provided, use that specific clearance.
     If not provided, user has no clearance (Unclassified only).
     """
-    user_level, user_depts = get_specific_clearance(db, user_id, clearance_token_id)
+    user_level, user_depts, is_organizational = get_specific_clearance(db, user_id, clearance_token_id)
     if user_level is None:
         # Invalid or revoked clearance token
         return False
@@ -181,33 +199,28 @@ def check_transfer_read_access(db: Session, user_id: int, transfer_id: int, clea
     if transfer_depts is None:
         transfer_depts = set()
 
-    return can_read(user_level, user_depts, transfer_level, transfer_depts)
+    return can_read(user_level, user_depts, transfer_level, transfer_depts, is_organizational)
 
 def check_transfer_write_access(
     db: Session,
     user_id: int,
     classification_level: str,
     departments: List[str],
-    clearance_token_id: Optional[int] = None
+    clearance_token_id:int
 ) -> bool:
     """
     Check if user can write at the specified classification level.
     If clearance_token_id is provided, use that specific clearance.
     If not provided, user has no clearance (Unclassified only).
     """
-    if clearance_token_id:
-        user_level, user_depts = get_specific_clearance(db, user_id, clearance_token_id)
-        if user_level is None:
-            # Invalid or revoked clearance token
-            return False
-    else:
-        # No clearance specified - user has no clearance
-        user_level = ClearanceLevelEnum.UNCLASSIFIED.value
-        user_depts = set()
+    user_level, user_depts, is_organizational = get_specific_clearance(db, user_id, clearance_token_id)
+    if user_level is None:
+        # Invalid or revoked clearance token
+        return False
 
     dept_set = set(departments)
 
-    return can_write(user_level, user_depts, classification_level, dept_set)
+    return can_write(user_level, user_depts, classification_level, dept_set, is_organizational)
 
 def is_trusted_officer(db: Session, user_id: int, acting_role: str) -> bool:
     """

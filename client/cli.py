@@ -844,7 +844,7 @@ def main():
     activate_parser.set_defaults(func=cmd_activate)
 
     login_parser = subparsers.add_parser(
-        "login", help="Login to get JWT token")
+        "login", help="Login to get token")
     login_parser.add_argument("--username", required=True, help="Username")
     login_parser.add_argument("--password", required=True, help="Password")
     login_parser.set_defaults(func=cmd_login)
