@@ -33,6 +33,7 @@ class CreateUserRequest(BaseModel):
 class UpdateRoleRequest(BaseModel):
     role: str
     signed_role_token: str
+    expires_at: Optional[str] = None
 
 
 class ClearanceRequest(BaseModel):
@@ -40,6 +41,7 @@ class ClearanceRequest(BaseModel):
     departments: List[str]
     expires_at: str
     signed_token: str
+    is_organizational: bool = False
 
 
 class UpdateUserInfoRequest(BaseModel):
