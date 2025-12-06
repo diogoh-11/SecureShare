@@ -1,0 +1,40 @@
+
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: secureshare-server
+    ports:
+      - "8443:8443"
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.connect(('localhost', 8443)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    image: sshare-client
+    network_mode: host
+    volumes:
+      - ~/.sshare:/root/.sshare
+      - ${PWD}:/files
+    working_dir: /files
+    environment:
+      - PYTHONPATH=/app
+    entrypoint: ["python3", "/app/cli.py"]
+    stdin_open: true
+    tty: true
+    deploy:
+      replicas: 0
+
+volumes:
+  db_data:
+  transfer_data:
