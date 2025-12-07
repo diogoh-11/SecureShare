@@ -1,9 +1,9 @@
 # SecureShare
 
 ## Authors
-[Thiago Vicente (121497)](https://github.com/ThiagoAVicente)
-[Diogo Duarte (120482)](https://github.com/diogoh-11)
-[João Pereira (120010)](https://github.com/JPSP9547)
+- [Thiago Vicente (121497)](https://github.com/ThiagoAVicente)
+- [Diogo Duarte (120482)](https://github.com/diogoh-11)
+- [João Pereira (120010)](https://github.com/JPSP9547)
 
 
 ## Project Overview
