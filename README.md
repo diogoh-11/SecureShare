@@ -63,7 +63,8 @@ sshare/
 ## Prerequisites
 
 - Docker
-- Docker Compose 
+- Docker Compose
+- Xca (recommended)
 
 ## Installation
 
@@ -74,7 +75,13 @@ git clone <repository-url>
 cd sshare
 ```
 
-### 2. Build containers and start server
+### 2. Create the certificates and keys
+
+Generate the certificate chain and place root.crt on `client/certs/root.crt` and chain.crt and key.pem in `server/certs/{key.pem, chain.crt}`.
+
+We recommend using Xca to generate the certificate chain. Follow the steps on [our guideline](docs/xca_gen_certs.md)
+
+### 3. Build containers and start server
 
 ```bash
 # From project root
@@ -86,7 +93,7 @@ This will:
 - Create certs using `mkcert`
 - Start the https server on port 8443
 
-### 3. Use client 
+### 4. Use client 
 
 #### Use the docker container (recommended)
 Step 2 already built `sshare-client` image.
@@ -101,7 +108,9 @@ Step 2 already built `sshare-client` image.
 - Or use **absolute paths** with `/home/user/` prefix (e.g., `/home/user/Documents/file.txt`)
 - Do **NOT** use `~` (tilde) - it won't expand correctly inside the container
 
-#### Run using python 
+#### Run using python  
+
+**Note:** this method is not recommended and to use it you must place  `root.crt` (see step **2**) in your system trusted certificates.
 
 ```bash
 # install virtualenv
