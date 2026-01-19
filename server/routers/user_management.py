@@ -22,6 +22,7 @@ async def create_user(
     user_db: tuple = Depends(get_current_user),
     db: Session = Depends(require_role(["Administrator"]))
 ):
+    from services.audit_service import AuditService
     user, _ = user_db
 
     if not user.organization_id:
@@ -35,6 +36,12 @@ async def create_user(
             issuer_id=user.id,
             organization_id=user.organization_id
         )
+        
+        AuditService.log_action(db, user.id, "CREATE_USER", {
+            "new_user_id": result["user"].id,
+            "username": result["user"].username
+        })
+        
         return {
             "user_id": result["user"].id,
             "username": result["user"].username,
@@ -331,11 +338,16 @@ async def update_current_user_info(
     db: Session = Depends(get_db)
 ):
     import bcrypt
+    from services.audit_service import AuditService
     user, _ = user_db
 
     if request.password:
         user.password_hash = bcrypt.hashpw(
             request.password.encode(), bcrypt.gensalt()).decode()
         db.commit()
+        
+        AuditService.log_action(db, user.id, "UPDATE_PASSWORD", {
+            "user_id": user.id
+        })
 
     return {"success": True, "message": "User info updated"}

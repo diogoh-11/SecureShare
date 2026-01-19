@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from schemas.schemas import CreateOrganizationRequest, OrganizationCreationResponse
 from services.organization_service import OrganizationService
+from services.audit_service import AuditService
 
 router = APIRouter(prefix="/organizations", tags=["Organization Management"])
 
@@ -21,6 +22,16 @@ async def create_organization(request: CreateOrganizationRequest, db: Session = 
     """
     try:
         result = OrganizationService.create_organization(db, request)
+        
+        # Log organization creation (use the new admin user's ID)
+        from models.models import User
+        admin_user = db.query(User).filter(User.username == result["username"]).first()
+        if admin_user:
+            AuditService.log_action(db, admin_user.id, "CREATE_ORGANIZATION", {
+                "organization_name": result["organization"].name,
+                "admin_username": result["username"]
+            })
+        
         return OrganizationCreationResponse(
             success=True,
             message=f"Organization created. Please activate the admin [{result["username"]}] account.",

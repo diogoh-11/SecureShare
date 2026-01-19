@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Response, Header, Request
 from sqlalchemy.orm import Session
 from database import get_db
 from services.auth_service import AuthService
+from services.audit_service import AuditService
 from utils.funcs import required
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -27,6 +28,15 @@ async def activate(request: dict, db: Session = Depends(get_db)):
     # check if registration worked
     if not result:
         raise HTTPException(status_code=400, detail="Registration failed")
+    
+    # Log activation - use username to get user_id
+    from models.models import User
+    user = db.query(User).filter(User.username == username).first()
+    if user:
+        AuditService.log_action(db, user.id, "ACTIVATE_ACCOUNT", {
+            "username": username
+        })
+    
     return result
 
 @router.post("/login")
@@ -42,6 +52,14 @@ async def verify_login(request: dict, db: Session = Depends(get_db)):
     if not result:
         raise HTTPException(status_code=400, detail="Login failed")
 
+    # Log login
+    from models.models import User
+    user = db.query(User).filter(User.username == username).first()
+    if user:
+        AuditService.log_action(db, user.id, "LOGIN", {
+            "username": username
+        })
+
     return result
 
 @router.post("/logout")
@@ -53,10 +71,19 @@ async def logout(
 
     token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
 
+    # Get user before logout to log the action
+    from models.models import Session as SessionModel
+    session = db.query(SessionModel).filter(SessionModel.session_token == token).first()
+    user_id = session.user_id if session else None
+
     result = auth_service.logout(token)
 
     if not result:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    # Log logout
+    if user_id:
+        AuditService.log_action(db, user_id, "LOGOUT", {})
 
     return result
 
@@ -75,3 +102,4 @@ async def validate_session(
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     return result
+
