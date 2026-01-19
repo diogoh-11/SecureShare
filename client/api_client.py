@@ -2,10 +2,8 @@ from ctypes import ArgumentError
 import requests
 import json
 from typing import Optional
-import urllib3
 import base64
-from crypto import KeyManager 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from crypto import KeyManager
 
 
 class APIClient:
@@ -15,7 +13,7 @@ class APIClient:
         self.acting_role = acting_role
         self.acting_clearance = acting_clearance
         self.session = requests.Session()
-        self.session.verify = False
+        self.session.verify = True
 
     def _headers(self):
         headers = {"Content-Type": "application/json"}
@@ -168,14 +166,14 @@ class APIClient:
             'nonce' : base64.b64encode(nonce).decode("ascii"),
             'strategy' : strategy
         }
-        
+
         if strategy == "GCM":
             encrypted_file_data = km.encrypt_file_gcm(file_data, file_key, nonce, metadata)
         elif strategy == "XChaCha":
             encrypted_file_data = km.encrypt_file_xshasha(file_data, file_key, nonce, metadata)
         else:
             raise ValueError(f"Strategy {strategy} is not a valid strategy for encription")
-        
+
         files = {'file': ('file', encrypted_file_data)}
         return self.post("/api/transfers", data=metadata, files=files)
 

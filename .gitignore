@@ -118,7 +118,8 @@ dmypy.json
 
 # Pyre
 .pyre/
-
+*.xdb
+*.obsidian
 # SecureShare Specific
 # ------------------
 
@@ -127,9 +128,8 @@ backend/uploads/*
 !backend/uploads/.gitkeep
 
 # Cryptographic keys
-backend/keys/
-backend/certs/
-server/certs/
+server/certs/*.crt
+client/certs/*.crt
 *.pem
 *.key
 *.crt
