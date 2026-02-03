@@ -5,7 +5,6 @@
 - [Diogo Duarte (120482)](https://github.com/diogoh-11)
 - [João Pereira (120010)](https://github.com/JPSP9547)
 
-
 ## Project Overview
 
 A secure file transfer web application with end-to-end encryption, role-based access control (RBAC), and multi-level security (MLS) implementation. The system supports multiple organizations with data isolation between them.
